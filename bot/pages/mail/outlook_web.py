@@ -294,36 +294,70 @@ class OutlookWebProvider:
 
     async def _scan_folder(self, helper: PageHelper, url: str, extractor) -> str | None:
         sel = self.ctx.sel
-        needle = (self.cfg.get("csfloat.mail_search") or "csfloat").lower()
         try:
             await helper.goto(url)
-            await helper.settle(2.0)
+            await helper.settle(2.5)
         except Exception as exc:  # noqa: BLE001 — папка может не открыться, попробуем на следующем круге
             self.log.debug("Не удалось открыть папку: %s", exc)
             return None
 
-        # 1) письмо может уже быть открыто в области чтения
+        # письмо могло уже открыться в области чтения
         found = extractor(await helper.html(), await helper.text_of(sel("outlook.message_body"), timeout=2), "")
         if found:
             return found
 
-        # 2) ищем письмо в списке
+        for tab in ("Focused", "Other"):
+            if tab == "Other" and not await self._switch_to_other(helper):
+                continue
+            found = await self._scan_rows(helper, extractor)
+            if found:
+                self.log.debug("Письмо найдено во вкладке «%s»", tab)
+                return found
+        return None
+
+    async def _switch_to_other(self, helper: PageHelper) -> bool:
+        """Вкладка Other: Outlook раскладывает письма по двум спискам."""
+        tab = await helper.first_visible(self.ctx.sel("outlook.tab_other", required=False), timeout=2)
+        if tab is None:
+            return False
+        try:
+            await tab.click()
+            await helper.settle(2.0)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    async def _scan_rows(self, helper: PageHelper, extractor) -> str | None:
+        """Открывает письма от CSFloat и вытаскивает из них токен или ссылку."""
+        sel = self.ctx.sel
+        needle = (self.cfg.get("csfloat.mail_search") or "csfloat").lower()
+
         for row_selector in sel("outlook.message_rows"):
             rows = self.page.locator(f"{row_selector}:has-text('{needle}')")
             try:
                 count = await rows.count()
             except Exception:  # noqa: BLE001
                 continue
+            if not count:
+                continue
+            self.log.debug("Писем от CSFloat в списке: %d (%s)", count, row_selector)
+
             for index in range(min(count, 5)):
                 try:
                     await rows.nth(index).click()
-                    await helper.settle(2.0)
-                except Exception:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
+                    self.log.debug("Не открылось письмо %d: %s", index, exc)
                     continue
+
+                # ждём, пока область чтения наполнится
+                await helper.first_visible(sel("outlook.message_body"), timeout=10)
+                await helper.settle(1.5)
+
                 body = await helper.text_of(sel("outlook.message_body"), timeout=5)
                 found = extractor(await helper.html(), body, await self._anchor_hrefs())
                 if found:
                     return found
+                self.log.debug("В письме %d ничего не нашлось (текста %d символов)", index, len(body))
         return None
 
     async def _anchor_hrefs(self) -> str:

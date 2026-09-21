@@ -280,9 +280,16 @@ outlook:
     - "input[aria-label='Search']"
     - "input[placeholder*='Search']"
     - "#topSearchInput"
+  # Вкладки списка писем: письмо может лежать в Other, а не в Focused
+  tab_other:
+    - "div[role='tab']:has-text('Other')"
+    - "button:has-text('Other')"
+    - "[aria-label='Other']"
   message_rows:
     - "div[role='option']"
+    - "div[role='listbox'] div[role='option']"
     - "div[data-convid]"
+    - "[aria-label*='CSFloat' i]"
   message_body:
     - "div[aria-label='Message body']"
     - "div[role='document']"
