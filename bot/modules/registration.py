@@ -66,9 +66,13 @@ class RegistrationModule:
                     ctx.log.info("Токен получен: %s… (%d символов)", token[:3], len(token))
 
                 async with ctx.step("csfloat_submit_token", "ввожу токен на CSFloat"):
-                    await cs.open_account_page()
-                    if not await cs.find_onboarding():
-                        raise UnexpectedState("окно Onboard закрылось, токен вводить некуда")
+                    # вкладка CSFloat всё это время стояла на мастере: лишний переход
+                    # сбросил бы его на шаг Verify Email и потребовал новый токен
+                    if not await cs.onboarding_visible(timeout=4):
+                        ctx.log.info("Окно Onboard закрылось — открываю профиль заново")
+                        await cs.open_account_page()
+                        if not await cs.find_onboarding():
+                            raise UnexpectedState("окно Onboard закрылось, токен вводить некуда")
                     if not await cs.submit_token(token):
                         raise UnexpectedState("CSFloat не принял токен")
 
