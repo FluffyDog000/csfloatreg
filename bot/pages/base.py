@@ -13,7 +13,10 @@ import re
 import time
 
 from ..captcha import detect as detect_captcha
-from ..errors import NetworkError, StepTimeout
+from ..errors import NetworkError, ProxyAuthFailed, StepTimeout
+
+#: Коды, которые отдаёт шлюз/прокси, а не сам сайт: ретраить, а не искать селекторы.
+_GATEWAY_STATUSES = {502, 503, 504, 520, 521, 522, 523, 524}
 
 _NET_MARKERS = (
     "net::err", "ns_error", "econnreset", "timeout", "socket hang up",
@@ -33,9 +36,27 @@ class PageHelper:
     async def goto(self, url: str, *, wait: str = "domcontentloaded") -> None:
         self.log.debug("goto %s", url)
         try:
-            await self.page.goto(url, wait_until=wait, timeout=self.cfg.get("timeouts.page_load_ms", 60000))
+            response = await self.page.goto(
+                url, wait_until=wait, timeout=self.cfg.get("timeouts.page_load_ms", 60000)
+            )
         except Exception as exc:  # noqa: BLE001
             raise self.classify(exc, f"переход на {url}") from exc
+        if response is not None:
+            self.check_status(response.status, url)
+
+    def check_status(self, status: int, url: str) -> None:
+        """Пустая страница с кодом 504 — это мёртвый прокси, а не сломанный сайт."""
+        proxy = getattr(self.ctx.bundle, "proxy", None)
+        where = f" (прокси {proxy.safe()})" if proxy is not None else ""
+        if status == 407:
+            raise ProxyAuthFailed(f"прокси не принял логин/пароль (407){where}")
+        if status in _GATEWAY_STATUSES:
+            raise NetworkError(
+                f"шлюз вернул {status} при переходе на {url}{where}: "
+                f"прокси не смог достучаться до сайта"
+            )
+        if status == 429:
+            raise NetworkError(f"слишком много запросов (429) при переходе на {url}{where}")
 
     @staticmethod
     def classify(exc: Exception, what: str) -> Exception:

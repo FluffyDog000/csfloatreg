@@ -101,9 +101,20 @@ async def run_probe(args) -> int:
         await session.start()
         page = await session.page("csfloat")
         account_log.info("Открываю %s", url)
-        response = await page.goto(
-            url, wait_until="domcontentloaded", timeout=cfg.get("timeouts.page_load_ms", 60000)
-        )
+        try:
+            response = await page.goto(
+                url, wait_until="domcontentloaded", timeout=cfg.get("timeouts.page_load_ms", 60000)
+            )
+        except Exception as exc:  # noqa: BLE001 — диагностике трейсбек ни к чему
+            print("\n" + "─" * 64)
+            print(f"  Навигация не удалась: {type(exc).__name__}")
+            print(f"  {str(exc).splitlines()[0][:200]}")
+            print(f"  Прокси: {bundle.proxy.safe()}")
+            print("  Чаще всего это мёртвый прокси или его сессия. Проверь ту же строку")
+            print("  прокси в обычном браузере и возьми другую сессию.")
+            print("─" * 64)
+            await artifacts.dump(page, bundle.account.login, "probe_failed", debug=True, note=str(exc))
+            return 1
 
         rendered = True
         try:
@@ -151,7 +162,15 @@ async def run_probe(args) -> int:
             print("\n  HTML целиком (он подозрительно короткий):")
             print("  " + html.replace("\n", "\n  ")[:1800])
         print("─" * 64)
-        if not rendered:
+        status = response.status if response is not None else 0
+        if status in (407, 429) or 500 <= status < 600:
+            print(
+                f"\n  Это ответ ПРОКСИ, а не сайта (код {status}).\n"
+                f"  Прокси: {bundle.proxy.safe()}\n"
+                "  Проверь эту же строку прокси в обычном браузере, возьми другую сессию\n"
+                "  или другой выход. Браузер и селекторы тут ни при чём.\n"
+            )
+        elif not rendered:
             print(
                 "\n  Страница пустая. Смотри выше строки 'запрос не прошёл' и 'JS-ошибка'.\n"
                 "  Быстрые проверки в config.yaml, по одной за раз:\n"

@@ -87,6 +87,12 @@ class MailNotReceived(FatalError):
     status = "mail_not_received"
 
 
+class ProxyAuthFailed(FatalError):
+    """Прокси отверг логин/пароль — ретраи не помогут."""
+
+    status = "proxy_auth_failed"
+
+
 class BrowserNotInstalled(FatalError):
     """Движок браузера не скачан. Ретраить бессмысленно — нужен `camoufox fetch`."""
 
