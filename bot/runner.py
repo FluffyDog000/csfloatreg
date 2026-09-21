@@ -28,7 +28,7 @@ class Runner:
 
         cfg.ensure_dirs()
         self.results = ResultsStore(cfg.path_for("results"))
-        self.state = StateStore(cfg.path_for("state"))
+        self.state = StateStore(cfg.path_for("state"), cfg.path_for("profiles"))
         self.artifacts = ArtifactStore(cfg.path_for("errors"), cfg.path_for("debug_dumps"))
         self.solver = build_solver(cfg)
         self.steam_time = SteamTime(

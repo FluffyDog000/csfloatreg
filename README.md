@@ -21,6 +21,31 @@ python -m camoufox fetch          # ~150 МБ, один раз: сборка Fir
 `browser.engine: firefox` (или `chromium`) и выполни `playwright install firefox`.
 Остальной код от движка не зависит.
 
+> Если при импорте Camoufox падает с `ImportError: cannot import name 'CLoader' from 'yaml'` —
+> системный PyYAML собран без libyaml. Лечится `pip install --ignore-installed pyyaml`.
+
+## Профили и отпечатки
+
+Бот работает как антидетект-браузер: **профиль на аккаунт**, а не общий браузер с
+подчищенными cookies.
+
+* `browser.persistent_profile: true` — Camoufox запускается с `user_data_dir =
+  profiles/<login>`. Сохраняется весь профиль Firefox: cookies, localStorage,
+  IndexedDB, service workers, кеш, история. CSFloat и почта живут во вкладках
+  **одного окна**, как у живого человека, а не в изолированных контекстах.
+* `browser.pin_fingerprint: true` — отпечаток генерируется один раз и закрепляется за
+  аккаунтом в `state/<login>.fp.json`. Без этого Camoufox на каждом запуске выдаёт новые
+  seed'ы `canvas`, `audio` и `fonts:spacing`, и аккаунт с живыми cookies всё равно
+  выглядит как новое устройство. Гео-свойства (`timezone`, `navigator.language`,
+  `webrtc:*`, `geolocation:*`) намеренно **не** закрепляются — их каждый раз
+  пересчитывает `geoip` под текущий IP прокси.
+
+Отпечаток переживает сброс аккаунта: `forget()` удаляет cookies и профиль, но оставляет
+`*.fp.json` — иначе сброс сессии превращал бы аккаунт в новое устройство.
+
+Профиль занимает порядка 50–150 МБ с кешем; при сотнях аккаунтов это заметно.
+Кеш отключается через `browser.enable_cache: false`.
+
 ## Входные данные
 
 | Файл | Формат |
@@ -130,10 +155,11 @@ main.py              CLI                  web/             веб-интерфе
 bot/
   loader.py          accounts/proxies/mafiles + связывание 1:1
   steam_guard.py     TOTP Steam + синхронизация времени с сервером Steam
-  browser.py         1 аккаунт = 1 браузер (Camoufox) = 1 прокси; контексты csfloat/mail
+  browser.py         1 аккаунт = 1 браузер (Camoufox) = 1 прокси = 1 профиль = 1 отпечаток
   proxy_relay.py     локальный SOCKS5-релей для прокси с авторизацией
   runner.py          очередь, Semaphore, ретраи, предохранитель
-  storage.py         results.csv, state/<login>.json, errors/<login>/
+  storage.py         results.csv, state/<login>.json, state/<login>.fp.json,
+                     profiles/<login>/, errors/<login>/
   context.py         AccountContext + ctx.step() (лог, пауза в debug, дамп при падении)
   captcha.py         детект + интерфейс решалки (NullSolver)
   pages/             base (движок селекторов), steam_login, csfloat, mail/outlook_web
@@ -166,3 +192,7 @@ class ApiKeyModule:
   QR-кодом тоже распознаётся — бот переключается на форму логина. Экран «код на почту»
   детектируется, но не автоматизируется.
 * Селекторы CSFloat/Outlook в `selectors.yaml` — черновые, снимаются в `--debug`.
+* Профиль и закреплённый отпечаток убирают связывание аккаунтов **по отпечатку браузера**.
+  Они не влияют на связывание по IP, по поведению и по скорости регистраций — от банов
+  за массовую регистрацию это не спасает, на это работают паузы, `run.start_jitter`
+  и предохранитель.

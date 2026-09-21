@@ -9,10 +9,14 @@ Camoufox инжектит фингерпринт на уровне ЗАПУСК�
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import platform
 import random
 import sys
+import time
+from functools import partial
 from pathlib import Path
 
 from .errors import NetworkError
@@ -24,6 +28,30 @@ Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
 window.chrome = window.chrome || {runtime: {}};
 Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
 """
+
+
+#: Ключи, которые НЕ закрепляем: их должен пересчитывать geoip под IP прокси.
+_GEO_PREFIXES = (
+    "webrtc:", "geolocation:", "timezone", "locale:",
+    "navigator.language", "headers.Accept-Language", "proxy",
+)
+
+
+def _config_from_launch_options(options: dict) -> dict:
+    """Camoufox отдаёт итоговый отпечаток чанками в env CAMOU_CONFIG_<n>."""
+    env = options.get("env") or {}
+    chunks = [
+        (int(key.rsplit("_", 1)[1]), value)
+        for key, value in env.items()
+        if key.startswith("CAMOU_CONFIG_")
+    ]
+    if not chunks:
+        return {}
+    return json.loads("".join(value for _, value in sorted(chunks)))
+
+
+def _strip_geo(config: dict) -> dict:
+    return {key: value for key, value in config.items() if not key.startswith(_GEO_PREFIXES)}
 
 
 def _stable_random(seed: str) -> random.Random:
@@ -41,6 +69,7 @@ class BrowserSession:
         self.headful = cfg.get("run.headful", False) if headful is None else headful
 
         self.browser = None
+        self._persistent = None     # BrowserContext, если включён профиль на аккаунт
         self._camoufox = None
         self._playwright = None
         self._relay: SocksRelay | None = None
@@ -53,14 +82,18 @@ class BrowserSession:
         user_agents = cfg.get("browser.user_agents") or []
         self.user_agent = rng.choice(user_agents) if user_agents else None
         self.os_choice = rng.choice(cfg.get("browser.os") or ["windows"])
+        self.persistent = bool(cfg.get("browser.persistent_profile", True)) and (
+            (cfg.get("browser.engine") or "camoufox").lower() == "camoufox"
+        )
 
     # ── запуск ───────────────────────────────────────────────
     async def start(self) -> "BrowserSession":
         proxy_cfg, self._relay = await maybe_relay(self.proxy, self.cfg, self.log)
         engine = (self.cfg.get("browser.engine") or "camoufox").lower()
         self.log.info(
-            "Запуск браузера (%s, %s, %dx%d) через %s",
-            engine, "headful" if self.headful else "headless",
+            "Запуск браузера (%s%s, %s, %dx%d) через %s",
+            engine, ", профиль аккаунта" if self.persistent else "",
+            "headful" if self.headful else "headless",
             self.viewport[0], self.viewport[1], self.proxy.safe(),
         )
         try:
@@ -88,6 +121,70 @@ class BrowserSession:
             return "virtual"
         return False
 
+    async def _fingerprint(self) -> dict | None:
+        """Отпечаток, закреплённый за аккаунтом.
+
+        Без этого Camoufox генерирует новые seed'ы canvas/audio/fonts при каждом
+        запуске, и аккаунт с живыми cookies выглядит как то же самое устройство
+        только до перезапуска бота. Гео-ключи намеренно не закрепляем — их
+        пересчитывает geoip под текущий IP прокси.
+        """
+        if not self.cfg.get("browser.pin_fingerprint", True):
+            return None
+
+        path = self.state.path(self.login, "fp")
+        try:
+            from importlib.metadata import version as _pkg_version
+
+            camoufox_version = _pkg_version("camoufox")
+        except Exception:  # noqa: BLE001
+            camoufox_version = "unknown"
+
+        if path.exists():
+            try:
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                if saved.get("camoufox") == camoufox_version and saved.get("config"):
+                    self.log.debug("Отпечаток поднят из %s", path.name)
+                    return saved["config"]
+                self.log.info("Версия Camoufox изменилась — перегенерирую отпечаток аккаунта")
+            except (OSError, ValueError) as exc:
+                self.log.warning("Не читается %s (%s) — перегенерирую отпечаток", path.name, exc)
+
+        try:
+            from camoufox.utils import launch_options as camoufox_launch_options
+
+            generated = await asyncio.to_thread(
+                partial(
+                    camoufox_launch_options,
+                    os=self.os_choice,
+                    window=self.viewport,
+                    i_know_what_im_doing=True,
+                )
+            )
+            config = _strip_geo(_config_from_launch_options(generated))
+            if not config:
+                raise ValueError("Camoufox не отдал CAMOU_CONFIG")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "camoufox": camoufox_version,
+                        "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "os": self.os_choice,
+                        "window": list(self.viewport),
+                        "config": config,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            self.log.info("Отпечаток сгенерирован и закреплён за аккаунтом (%d свойств)", len(config))
+            return config
+        except Exception as exc:  # noqa: BLE001 — не повод не запускать браузер
+            self.log.warning("Не удалось закрепить отпечаток (%s) — Camoufox сгенерирует свой", exc)
+            return None
+
     async def _start_camoufox(self, proxy_cfg: dict) -> None:
         try:
             from camoufox.async_api import AsyncCamoufox
@@ -112,8 +209,25 @@ class BrowserSession:
         if locale and not options["geoip"]:
             options["locale"] = locale
 
+        fingerprint = await self._fingerprint()
+        if fingerprint:
+            options["config"] = fingerprint
+
+        if self.persistent:
+            profile = self.state.profile(self.login)
+            options["persistent_context"] = True
+            options["user_data_dir"] = str(profile)
+            self.log.debug("Профиль аккаунта: %s", profile)
+
         self._camoufox = AsyncCamoufox(**options)
-        self.browser = await self._camoufox.__aenter__()
+        target = await self._camoufox.__aenter__()
+        if self.persistent:
+            # launch_persistent_context отдаёт сразу контекст, а не браузер
+            self._persistent = target
+            target.set_default_timeout(self.cfg.get("timeouts.action_ms", 20000))
+            target.set_default_navigation_timeout(self.cfg.get("timeouts.page_load_ms", 60000))
+        else:
+            self.browser = target
 
     async def _start_playwright(self, engine: str, proxy_cfg: dict) -> None:
         from playwright.async_api import async_playwright
@@ -126,6 +240,11 @@ class BrowserSession:
     async def context(self, name: str = "csfloat"):
         if name in self._contexts:
             return self._contexts[name]
+        if self._persistent is not None:
+            # один профиль на аккаунт: csfloat и почта живут во вкладках одного окна,
+            # как у живого человека, а не в изолированных контекстах
+            self._contexts[name] = self._persistent
+            return self._persistent
         if self.browser is None:
             raise RuntimeError("браузер не запущен")
 
@@ -159,12 +278,26 @@ class BrowserSession:
         if name in self._pages:
             return self._pages[name]
         context = await self.context(name)
-        pages = context.pages
-        page = pages[0] if pages else await context.new_page()
+        if self._persistent is not None:
+            # первая запрошенная страница занимает стартовую вкладку, остальные — новые
+            page = context.pages[0] if (not self._pages and context.pages) else await context.new_page()
+        else:
+            pages = context.pages
+            page = pages[0] if pages else await context.new_page()
         self._pages[name] = page
         return page
 
     async def save_state(self, name: str | None = None) -> None:
+        if self._persistent is not None:
+            # источник правды — сам профиль; cookies выгружаем рядом для отладки
+            try:
+                path = self.state.path(self.login, "csfloat")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                await self._persistent.storage_state(path=str(path))
+            except Exception as exc:  # noqa: BLE001
+                self.log.debug("Не удалось выгрузить cookies из профиля: %s", exc)
+            return
+
         names = [name] if name else list(self._contexts)
         for item in names:
             context = self._contexts.get(item)
@@ -185,11 +318,14 @@ class BrowserSession:
         except Exception:  # noqa: BLE001
             pass
         for context in list(self._contexts.values()):
+            if context is self._persistent:
+                continue  # закроется вместе с браузером в __aexit__
             try:
                 await context.close()
             except Exception:  # noqa: BLE001
                 pass
         self._contexts.clear()
+        self._persistent = None
         self._pages.clear()
 
         if self._camoufox is not None:

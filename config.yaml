@@ -19,6 +19,7 @@ paths:
   proxies: proxies.txt
   mafiles: mafiles
   state: state
+  profiles: profiles
   errors: errors
   logs: logs
   debug_dumps: debug
@@ -26,6 +27,8 @@ paths:
 
 browser:
   engine: camoufox           # camoufox | firefox | chromium
+  persistent_profile: true   # профиль на аккаунт (как в антидетект-браузерах), а не только cookies
+  pin_fingerprint: true      # закрепить отпечаток за аккаунтом: seed'ы canvas/audio/fonts не меняются
   os: [windows]              # какие ОС подделывать (camoufox)
   humanize: true             # человекоподобные движения курсора
   geoip: true                # подгон locale/timezone под IP прокси

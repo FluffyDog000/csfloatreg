@@ -317,7 +317,7 @@ def create_app(cfg, selectors, *, selectors_path: str = "selectors.yaml") -> Fas
         if payload.get("forget_cookies"):
             from bot.storage import StateStore
 
-            StateStore(cfg.path_for("state")).forget(login)
+            StateStore(cfg.path_for("state"), cfg.path_for("profiles")).forget(login)
         hub.publish("log", level="INFO", text=f"[{login}] статус сброшен")
         return state.snapshot()
 
