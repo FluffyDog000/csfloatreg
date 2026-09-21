@@ -238,7 +238,7 @@ class BrowserSession:
         prefs = self.cfg.get("browser.firefox_prefs") or {}
         if prefs:
             options["firefox_user_prefs"] = dict(prefs)
-            self.log.debug("Настройки Firefox: %s", ", ".join(prefs))
+            self.log.info("Настройки Firefox применены: %s", ", ".join(f"{k}={v}" for k, v in prefs.items()))
 
         locale = self.cfg.get("browser.locale")
         if locale and not options["geoip"]:

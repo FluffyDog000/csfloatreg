@@ -164,7 +164,13 @@ async def run_probe(args) -> int:
         user_agent = await page.evaluate("() => navigator.userAgent")
         saved = await artifacts.dump(page, bundle.account.login, "probe", debug=True, note=f"проба {url}")
 
+        prefs = cfg.get("browser.firefox_prefs") or {}
         print("\n" + "─" * 64)
+        print(f"  Движок             : {cfg.get('browser.engine')}"
+              f", профиль: {'да' if cfg.get('browser.persistent_profile') else 'нет'}"
+              f", geoip: {'да' if cfg.get('browser.geoip') else 'нет'}"
+              f", картинки: {'блок' if cfg.get('browser.block_images') else 'ок'}")
+        print(f"  Настройки Firefox  : {', '.join(f'{k}={v}' for k, v in prefs.items()) or '(нет)'}")
         print(f"  URL после загрузки : {page.url}")
         if response is not None:
             print(f"  HTTP-статус        : {response.status} {response.status_text}")
