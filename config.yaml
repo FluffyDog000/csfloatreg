@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────────────────────
+#  CSFloat bot — основной конфиг
+#  Селекторы живут отдельно: selectors.yaml
+# ─────────────────────────────────────────────────────────────
+
+run:
+  threads: 3                 # asyncio.Semaphore
+  headful: false             # true = видимый браузер
+  debug: false               # пошаговый режим с паузами
+  modules: [registration]    # порядок выполнения; api_key появится в модуле 2
+  start_jitter: [1.0, 5.0]   # случайная пауза перед стартом аккаунта, сек
+  skip_statuses: [done]      # какие статусы пропускать при перезапуске
+  circuit_breaker:
+    enabled: true
+    consecutive_failures: 10 # N фатальных подряд -> остановить прогон
+
+paths:
+  accounts: accounts.txt
+  proxies: proxies.txt
+  mafiles: mafiles
+  state: state
+  errors: errors
+  logs: logs
+  debug_dumps: debug
+  results: results.csv
+
+browser:
+  engine: camoufox           # camoufox | firefox | chromium
+  os: [windows]              # какие ОС подделывать (camoufox)
+  humanize: true             # человекоподобные движения курсора
+  geoip: true                # подгон locale/timezone под IP прокси
+  block_images: true         # быстрее и дешевле по трафику прокси
+  locale: en-US              # ВАЖНО: en-US => папка "Junk Email" в Outlook
+  timezone: null             # null = из geoip
+  enable_cache: true
+  virtual_display: auto      # auto|true|false — Xvfb для headful на Linux без GUI
+  viewports:
+    - [1280, 800]
+    - [1366, 768]
+    - [1440, 900]
+    - [1536, 864]
+    - [1920, 1080]
+  user_agents: []            # пусто = фингерпринт генерирует camoufox
+
+proxy:
+  default_scheme: http       # если в строке прокси нет схемы
+  relay_socks_auth: true     # socks5 с логином/паролем -> локальный релей без авторизации
+  relay_host: 127.0.0.1
+
+timeouts:
+  page_load_ms: 60000
+  action_ms: 20000
+  step_ms: 180000            # предохранитель на один шаг модуля
+  module_s: 900              # общий бюджет на один модуль для аккаунта (в debug не применяется)
+  mail_wait_s: 180           # сколько ждём письмо от CSFloat
+  mail_poll_s: 10            # интервал обновления ящика
+
+retries:
+  attempts: 3                # попыток на модуль (только на retryable-ошибки)
+  base_delay_s: 5
+  max_delay_s: 60
+
+steam:
+  time_sync: true            # синхронизация времени для TOTP
+  time_sync_url: https://api.steampowered.com/ITwoFactorService/QueryTime/v0001/
+  login_url: https://steamcommunity.com/login/home/
+
+csfloat:
+  base_url: https://csfloat.com
+  settings_url: https://csfloat.com/profile/settings
+  confirm_link_pattern: 'https?://[^\s"''<>)]*csfloat\.com[^\s"''<>)]*(?:verify|confirm)[^\s"''<>)]*'
+  mail_from: csfloat.com     # подстрока отправителя/темы для поиска письма
+
+mail:
+  provider: outlook_web      # реализации в bot/pages/mail/
+  check_junk: true
+  base_url: https://outlook.live.com/mail/0/
+  junk_url: https://outlook.live.com/mail/0/junkemail/
+
+captcha:
+  solver: none               # none | (задел: anticaptcha, twocaptcha)
+  api_key: null
+
+web:
+  host: 127.0.0.1
+  port: 8000
+  token: null                # если задан — требуется ?token= / заголовок X-Token

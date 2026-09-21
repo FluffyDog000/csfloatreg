@@ -1,0 +1,172 @@
+# ─────────────────────────────────────────────────────────────
+#  Селекторы. Каждое поле — СПИСОК кандидатов, пробуются по порядку.
+#  Спец-префикс "url:" — регулярка по текущему URL вместо DOM-селектора.
+#
+#  Значения ниже — черновые догадки. Точные снимаем в режиме:
+#      python main.py --debug --headful --only <login>
+#  (клавиша d на паузе выгружает кандидатов в debug/<login>/)
+# ─────────────────────────────────────────────────────────────
+
+steam:
+  username:
+    - "input[name='username']"
+    - "form input[type='text']:visible"
+    - "input[type='text']"
+  password:
+    - "input[name='password']"
+    - "input[type='password']"
+  submit:
+    - "button[type='submit']"
+    - "button:has-text('Sign in')"
+    - "button:has-text('Войти')"
+  # Новый логин Steam: 5 отдельных полей по одному символу
+  guard_boxes:
+    - "input[maxlength='1']"
+  # Старый вариант: одно поле
+  guard_single:
+    - "input[name='authcode']"
+    - "#twofactorcode_entry"
+    - "input[inputmode='numeric']"
+  guard_submit:
+    - "button[type='submit']:has-text('Submit')"
+    - "#login_twofactorauth_buttonset_entercode button"
+  bad_credentials:
+    - "text=Please check your password and account name"
+    - "text=неверный пароль"
+    - "text=Incorrect account name or password"
+  rate_limited:
+    - "text=There have been too many login failures"
+    - "text=too many login failures"
+  locked:
+    - "text=account has been locked"
+    - "text=Your account has been disabled"
+  # Steam просит код с почты (у аккаунта нет мобильного аутентификатора)
+  email_code:
+    - "text=We've sent you an email"
+    - "text=code sent to the email"
+    - "text=Enter the code sent to"
+  # Steam просит подтвердить вход в мобильном приложении
+  mobile_confirm:
+    - "text=Use the Steam Mobile App to confirm"
+    - "text=Confirm your sign in"
+    - "text=Подтвердите вход в приложении"
+  openid_page:
+    - "url:steamcommunity\\.com/openid"
+    - "url:steamcommunity\\.com/login"
+    - "url:store\\.steampowered\\.com/login"
+  openid_signin_button:
+    - "#imageLogin"
+    - "input[type='submit'][value='Sign In']"
+
+csfloat:
+  logged_in:
+    - "url:csfloat\\.com/profile"
+    - "img.avatar"
+    - "[class*='avatar']"
+    - "button:has-text('Sign Out')"
+  sign_in_button:
+    - "a[href*='steam']:has-text('Sign')"
+    - "button:has-text('Sign In')"
+    - "a:has-text('Sign In')"
+    - "img[alt*='Steam']"
+  cookie_accept:
+    - "button:has-text('Accept')"
+    - "button:has-text('Got it')"
+  settings_email_edit:
+    - "button:has-text('Edit')"
+    - "button:has-text('Change')"
+    - "[class*='edit'] button"
+  settings_email_input:
+    - "input[type='email']"
+    - "input[formcontrolname='email']"
+    - "input[placeholder*='mail' i]"
+  settings_email_save:
+    - "button:has-text('Verify')"
+    - "button:has-text('Save')"
+    - "button:has-text('Send')"
+    - "button[type='submit']"
+  email_pending:
+    - "text=verification email"
+    - "text=Pending verification"
+    - "text=Check your email"
+  email_verified:
+    - "text=Email verified"
+    - "text=Verified"
+    - "[class*='verified']"
+  confirm_success:
+    - "text=Email confirmed"
+    - "text=successfully verified"
+    - "text=Your email has been verified"
+
+outlook:
+  email_input:
+    - "input[name='loginfmt']"
+    - "#i0116"
+    - "input[type='email']"
+  email_next:
+    - "#idSIButton9"
+    - "input[type='submit']"
+    - "button[type='submit']"
+  password_input:
+    - "input[name='passwd']"
+    - "#i0118"
+    - "input[type='password']"
+  password_submit:
+    - "#idSIButton9"
+    - "input[type='submit']"
+    - "button[type='submit']"
+  # "Оставаться в системе?"
+  stay_signed_in_yes:
+    - "#idSIButton9"
+    - "button:has-text('Yes')"
+    - "input[value='Yes']"
+  # "Добавить телефон / сведения безопасности" — пропускаем
+  skip_buttons:
+    - "#iShowSkip"
+    - "#idBtn_Back"
+    - "a:has-text('Skip for now')"
+    - "button:has-text('Skip for now')"
+    - "button:has-text('Not now')"
+    - "button:has-text('Maybe later')"
+    - "a:has-text('Looks good')"
+    - "button:has-text('Looks good')"
+  wrong_password:
+    - "text=Your account or password is incorrect"
+    - "text=that Microsoft account doesn't exist"
+    - "#passwordError"
+  blocked:
+    - "text=Your account has been locked"
+    - "text=We've locked your account"
+    - "text=unusual activity"
+    - "url:account\\.live\\.com/(Abuse|identity|recover)"
+  verify_required:
+    - "text=Help us protect your account"
+    - "text=Verify your identity"
+    - "text=Enter the code"
+    - "url:account\\.live\\.com/identity/confirm"
+  mailbox_ready:
+    - "div[role='listbox']"
+    - "[aria-label='Message list']"
+    - "div[data-app-section='MessageList']"
+  search_input:
+    - "input[aria-label='Search']"
+    - "input[placeholder*='Search']"
+    - "#topSearchInput"
+  message_rows:
+    - "div[role='option']"
+    - "div[data-convid]"
+  message_body:
+    - "div[aria-label='Message body']"
+    - "div[role='document']"
+    - "#UniqueMessageBody"
+
+captcha:
+  markers:
+    - "iframe[src*='hcaptcha']"
+    - "iframe[src*='recaptcha']"
+    - "iframe[src*='arkoselabs']"
+    - "iframe[src*='funcaptcha']"
+    - "iframe[title*='challenge' i]"
+    - "#px-captcha"
+    - "text=Verify you are human"
+    - "text=Подтвердите, что вы человек"

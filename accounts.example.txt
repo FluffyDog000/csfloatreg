@@ -1,0 +1,4 @@
+# login:pass:mail:mailpassword
+# Steam-логин : Steam-пароль : почта Outlook : пароль почты
+steamuser1:SteamPass1:steamuser1@outlook.com:MailPass1
+steamuser2:SteamPass2:steamuser2@hotmail.com:MailPass2

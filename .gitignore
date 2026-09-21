@@ -1,0 +1,20 @@
+# Приватные входные данные — НИКОГДА не коммитить
+accounts.txt
+proxies.txt
+mafiles/
+*.maFile
+
+# Рантайм
+state/
+errors/
+logs/
+debug/
+results.csv
+uploads/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
