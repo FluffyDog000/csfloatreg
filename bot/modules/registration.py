@@ -32,17 +32,25 @@ class RegistrationModule:
                 if not await cs.wait_logged_in():
                     raise UnexpectedState("сессия CSFloat не подтверждается после входа")
 
-            # 4. Почта в настройках
+            # 4. Почта: либо мастер Onboard, либо поле в настройках
             async with ctx.step("csfloat_email_state", "смотрю текущее состояние почты"):
-                await cs.open_settings()
-                state = await cs.email_state()
+                await cs.open_profile()
+                if await cs.onboarding_visible():
+                    state = "onboarding"
+                else:
+                    await cs.open_settings()
+                    state = await cs.email_state()
                 ctx.log.info("Состояние почты на CSFloat: %s", state)
 
             if state == "verified":
                 ctx.log.info("Почта уже подтверждена — модуль завершён")
                 return
 
-            if state != "pending":
+            if state == "onboarding":
+                async with ctx.step("csfloat_onboarding", "принимаю условия и указываю почту"):
+                    if await cs.complete_onboarding(ctx.account.mail) != "email_sent":
+                        raise UnexpectedState("не удалось дойти до шага с почтой в окне Onboard")
+            elif state != "pending":
                 async with ctx.step("csfloat_set_email", "указываю почту и запрашиваю письмо"):
                     await cs.set_email(ctx.account.mail)
 

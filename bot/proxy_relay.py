@@ -111,8 +111,13 @@ class SocksRelay:
             # 5. Двусторонний поток
             await asyncio.gather(_pipe(reader, up_writer), _pipe(up_reader, writer))
         except (asyncio.IncompleteReadError, ConnectionError, OSError, ValueError) as exc:
+            # молчаливый отказ здесь выглядит как «General SOCKS server failure»
+            # на стороне браузера, поэтому причину пишем явно
             if self.logger:
-                self.logger.debug("SOCKS-релей: соединение закрыто (%s)", exc)
+                self.logger.warning(
+                    "SOCKS-релей не смог проксировать соединение через %s: %s: %s",
+                    self.upstream.safe(), type(exc).__name__, exc,
+                )
             with contextlib.suppress(Exception):
                 writer.write(b"\x05\x01\x00\x01\x00\x00\x00\x00\x00\x00")
                 await writer.drain()

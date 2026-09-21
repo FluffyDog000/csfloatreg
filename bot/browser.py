@@ -264,7 +264,22 @@ class BrowserSession:
             self.log.debug("Профиль аккаунта: %s", profile)
 
         self._camoufox = AsyncCamoufox(**options)
-        target = await self._camoufox.__aenter__()
+        try:
+            target = await self._camoufox.__aenter__()
+        except Exception as exc:  # noqa: BLE001
+            # geoip ходит за публичным IP через прокси (ipecho.net); если прокси
+            # этот хост не пускает, без повтора падает весь запуск
+            if "get ip address" not in str(exc).lower() or not options.get("geoip"):
+                raise
+            self.log.warning(
+                "Camoufox не смог определить IP через прокси (%s) — запускаюсь без geoip",
+                str(exc).split(":")[0],
+            )
+            options["geoip"] = False
+            if self.cfg.get("browser.locale"):
+                options["locale"] = self.cfg.get("browser.locale")
+            self._camoufox = AsyncCamoufox(**options)
+            target = await self._camoufox.__aenter__()
         if self.persistent:
             # launch_persistent_context отдаёт сразу контекст, а не браузер
             self._persistent = target

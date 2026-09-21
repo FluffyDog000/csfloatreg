@@ -14,6 +14,7 @@ class CsFloatPage(PageHelper):
         super().__init__(page, ctx, name="csfloat")
         self.base_url = ctx.cfg.get("csfloat.base_url", "https://csfloat.com").rstrip("/")
         self.settings_url = ctx.cfg.get("csfloat.settings_url") or f"{self.base_url}/profile/settings"
+        self.profile_url = ctx.cfg.get("csfloat.profile_url") or f"{self.base_url}/profile"
 
     # ── сессия ───────────────────────────────────────────────
     async def open_home(self) -> None:
@@ -132,6 +133,94 @@ class CsFloatPage(PageHelper):
 
     def _host(self) -> str:
         return self.base_url.split("://", 1)[-1]
+
+    # ── онбординг ────────────────────────────────────────────
+    async def open_profile(self) -> None:
+        await self.goto(self.profile_url)
+        await self.wait_rendered(timeout=self.cfg.get("csfloat.render_timeout_s", 25))
+        await self.settle(1.5)
+        await self.check_captcha("csfloat_profile")
+
+    async def onboarding_visible(self, timeout: float = 4) -> bool:
+        """Окно Onboard: Terms -> Verify Email -> Trade Link -> Done."""
+        return await self.first_visible(self.ctx.sel("csfloat.onboard_dialog"), timeout=timeout) is not None
+
+    async def complete_onboarding(self, email: str) -> str:
+        """Проходит онбординг до отправки письма.
+
+        Возвращает 'email_sent', если письмо запрошено, или 'email_step_missing',
+        если до шага с почтой дойти не удалось.
+        """
+        sel = self.ctx.sel
+        if not await self.first_visible(sel("csfloat.onboard_email_input"), timeout=2):
+            ticked = await self._tick_checkboxes()
+            self.log.info("Онбординг: отмечено согласий — %d", ticked)
+            next_button = await self.first_visible(sel("csfloat.onboard_next"), timeout=5)
+            if next_button is not None:
+                try:
+                    if not await next_button.is_enabled():
+                        self.log.warning("Кнопка Next осталась неактивной — отмечены не все согласия")
+                        await self.ctx.dump("onboard_terms_blocked", note="Next неактивна")
+                except Exception:  # noqa: BLE001
+                    pass
+                await next_button.click()
+                await self.settle(2.0)
+
+        field = await self.first_visible(sel("csfloat.onboard_email_input"), timeout=8)
+        if field is None:
+            self.log.warning("Онбординг: шаг с почтой не открылся")
+            await self.ctx.dump("onboard_no_email_step", note="шаг Verify Email не найден")
+            return "email_step_missing"
+
+        await field.click()
+        await field.fill("")
+        await self.type_text(field, email)
+        await self.click(sel("csfloat.onboard_email_submit"), "кнопку отправки письма")
+        await self.settle(2.5)
+        await self.check_captcha("csfloat_onboard_email")
+        self.log.info("Онбординг: письмо подтверждения запрошено для %s", email)
+        return "email_sent"
+
+    async def _tick_checkboxes(self) -> int:
+        """Отмечает все согласия. Чекбоксы Angular Material — это не input,
+        поэтому кликаем по самому элементу и проверяем состояние по атрибутам."""
+        for candidate in self.ctx.sel("csfloat.onboard_checkboxes"):
+            boxes = self.page.locator(candidate)
+            try:
+                count = await boxes.count()
+            except Exception:  # noqa: BLE001
+                continue
+            if not count:
+                continue
+
+            ticked = 0
+            for index in range(count):
+                box = boxes.nth(index)
+                if await self._is_checked(box):
+                    continue
+                try:
+                    await box.click(force=True, timeout=4000)
+                    ticked += 1
+                    await asyncio.sleep(0.25)
+                except Exception as exc:  # noqa: BLE001
+                    self.log.debug("Не удалось отметить чекбокс %d (%s): %s", index, candidate, exc)
+            if ticked:
+                return ticked
+        return 0
+
+    @staticmethod
+    async def _is_checked(locator) -> bool:
+        try:
+            return await locator.is_checked()
+        except Exception:  # noqa: BLE001 — не input, смотрим атрибуты
+            pass
+        try:
+            if (await locator.get_attribute("aria-checked")) == "true":
+                return True
+            classes = (await locator.get_attribute("class")) or ""
+            return "checkbox-checked" in classes or "mat-mdc-checkbox-checked" in classes
+        except Exception:  # noqa: BLE001
+            return False
 
     # ── почта в настройках ───────────────────────────────────
     async def open_settings(self) -> None:

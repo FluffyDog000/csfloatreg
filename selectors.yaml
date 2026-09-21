@@ -88,6 +88,35 @@ csfloat:
   cookie_accept:
     - "button:has-text('Accept')"
     - "button:has-text('Got it')"
+  # Окно Onboard: 1 Terms -> 2 Verify Email -> 3 Trade Link -> 4 Done
+  onboard_dialog:
+    - "mat-dialog-container:has-text('Onboard')"
+    - "[role='dialog']:has-text('Onboard')"
+    - "mat-dialog-container:has-text('Required for Buying')"
+    - "text=Required for Buying, Selling"
+  onboard_checkboxes:
+    - "mat-dialog-container mat-checkbox"
+    - "[role='dialog'] mat-checkbox"
+    - "mat-dialog-container [role='checkbox']"
+    - "mat-dialog-container input[type='checkbox']"
+    - "[role='dialog'] input[type='checkbox']"
+  onboard_next:
+    - "mat-dialog-container button:has-text('Next')"
+    - "[role='dialog'] button:has-text('Next')"
+    - "button:has-text('Next')"
+  onboard_email_step:
+    - "mat-dialog-container:has-text('Verify Email')"
+    - "[role='dialog']:has-text('Verify Email')"
+  onboard_email_input:
+    - "mat-dialog-container input[type='email']"
+    - "[role='dialog'] input[type='email']"
+    - "mat-dialog-container input[formcontrolname='email']"
+    - "mat-dialog-container input[placeholder*='mail' i]"
+  onboard_email_submit:
+    - "mat-dialog-container button:has-text('Send')"
+    - "mat-dialog-container button:has-text('Verify')"
+    - "mat-dialog-container button:has-text('Next')"
+    - "[role='dialog'] button[type='submit']"
   settings_email_edit:
     - "button:has-text('Edit')"
     - "button:has-text('Change')"
