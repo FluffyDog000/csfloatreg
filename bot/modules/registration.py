@@ -46,10 +46,37 @@ class RegistrationModule:
                 return
 
             if state == "onboarding":
-                async with ctx.step("csfloat_onboarding", "принимаю условия и указываю почту"):
-                    if await cs.complete_onboarding(ctx.account.mail) != "email_sent":
-                        raise UnexpectedState("не удалось дойти до шага с почтой в окне Onboard")
-            elif state != "pending":
+                # CSFloat присылает токен, а не ссылку: запрашиваем его и вводим здесь же
+                async with ctx.step("csfloat_onboarding", "принимаю условия и запрашиваю токен"):
+                    result = await cs.complete_onboarding(ctx.account.mail)
+                    if result != "token_sent":
+                        raise UnexpectedState(f"онбординг остановился: {result}")
+
+                async with ctx.step("mail_login", "вход в Outlook"):
+                    mail = build_mail_provider(ctx)
+                    await mail.login()
+
+                async with ctx.step("mail_wait_token", "жду письмо с токеном"):
+                    token = await mail.wait_for_code(
+                        ctx.cfg.get("csfloat.token_pattern"),
+                        timeout_s=ctx.cfg.get("timeouts.mail_wait_s", 180),
+                        poll_s=ctx.cfg.get("timeouts.mail_poll_s", 10),
+                    )
+                    ctx.data["token"] = token
+                    ctx.log.info("Токен получен: %s… (%d символов)", token[:3], len(token))
+
+                async with ctx.step("csfloat_submit_token", "ввожу токен на CSFloat"):
+                    await cs.open_account_page()
+                    if not await cs.find_onboarding():
+                        raise UnexpectedState("окно Onboard закрылось, токен вводить некуда")
+                    if not await cs.submit_token(token):
+                        raise UnexpectedState("CSFloat не принял токен")
+
+                await ctx.session.save_state()
+                ctx.log.info("Почта подтверждена")
+                return
+
+            if state != "pending":
                 async with ctx.step("csfloat_set_email", "указываю почту и запрашиваю письмо"):
                     await cs.set_email(ctx.account.mail)
 

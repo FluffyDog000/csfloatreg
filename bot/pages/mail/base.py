@@ -7,6 +7,7 @@ Graph API, достаточно написать класс с этими тре
 from __future__ import annotations
 
 import re
+from html import unescape
 from typing import Protocol
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -64,6 +65,51 @@ def extract_link(pattern: str, *sources: str) -> str | None:
         match = regex.search(source.replace("&amp;", "&"))
         if match:
             return unwrap_safelink(match.group(0))
+    return None
+
+
+#: Слова, которые стоят рядом с токеном, но токеном не являются.
+_NOT_TOKEN = {
+    "token", "code", "email", "verify", "verification", "please", "type", "below",
+    "your", "this", "that", "the", "and", "for", "you", "it", "is", "to", "in",
+    "spam", "trash", "folder", "promotional", "csfloat", "here", "link", "click",
+}
+_CANDIDATE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{3,63}")
+_KEYWORD = re.compile(r"\b(?:token|code|код|токен)\b", re.I)
+
+
+def _looks_like_token(value: str) -> bool:
+    value = value.strip(".,;:!?)»\"'")
+    if len(value) < 4 or value.lower() in _NOT_TOKEN:
+        return False
+    if any(ch.isdigit() for ch in value):
+        return True
+    # набор заглавных без цифр тоже бывает токеном
+    return len(value) >= 6 and value == value.upper()
+
+
+def extract_token(pattern: str | None, *sources: str) -> str | None:
+    """Достаёт токен подтверждения из письма.
+
+    Сначала пробует шаблон из конфига, затем эвристику: ищет слово token/code
+    и берёт за ним первое значение, похожее на токен. Одной регуляркой это не
+    решается — формулировки писем слишком разные.
+    """
+    regex = re.compile(pattern, re.I) if pattern else None
+    for source in sources:
+        if not source:
+            continue
+        text = unescape(source)
+        if regex:
+            for match in regex.finditer(text):
+                candidate = (match.group(1) if match.groups() else match.group(0)).strip()
+                if _looks_like_token(candidate):
+                    return candidate.strip(".,;:!?)»\"'")
+        for keyword in _KEYWORD.finditer(text):
+            window = text[keyword.end() : keyword.end() + 120]
+            for candidate in _CANDIDATE.findall(window):
+                if _looks_like_token(candidate):
+                    return candidate.strip(".,;:!?)»\"'")
     return None
 
 

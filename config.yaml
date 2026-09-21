@@ -86,6 +86,9 @@ csfloat:
   profile_url: https://csfloat.com/profile
   settings_url: null         # отдельной страницы настроек не нашли: /profile/settings -> 404.
                              # Пока null, бот работает с профилем. Если найдёшь адрес — впиши сюда.
+  # CSFloat присылает не ссылку, а токен, который вводится в окне Onboard.
+  # Шаблон подогнан под письмо: слово token/code, потом само значение.
+  token_pattern: '(?:token|code)[^A-Za-z0-9]{0,40}([A-Za-z0-9][A-Za-z0-9._-]{3,63})'
   confirm_link_pattern: 'https?://[^\s"''<>)]*csfloat\.com[^\s"''<>)]*(?:verify|confirm)[^\s"''<>)]*'
   mail_search: csfloat       # подстрока для поиска письма в списке OWA.
                              # Ищется по всей строке письма, а там видно ИМЯ отправителя

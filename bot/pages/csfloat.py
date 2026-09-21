@@ -213,10 +213,11 @@ class CsFloatPage(PageHelper):
         return await self.first_visible(self.ctx.sel("csfloat.onboard_dialog"), timeout=timeout) is not None
 
     async def complete_onboarding(self, email: str) -> str:
-        """Проходит онбординг до отправки письма.
+        """Онбординг до отправки токена.
 
-        Возвращает 'email_sent', если письмо запрошено, или 'email_step_missing',
-        если до шага с почтой дойти не удалось.
+        Шаг 2 мастера — не ссылка, а токен: CSFloat присылает его на почту, а
+        вводить нужно здесь же, в поле Token. Возвращает 'token_sent',
+        'email_step_missing' или 'token_field_missing'.
         """
         sel = self.ctx.sel
         if not await self.first_visible(sel("csfloat.onboard_email_input"), timeout=2):
@@ -242,11 +243,37 @@ class CsFloatPage(PageHelper):
         await field.click()
         await field.fill("")
         await self.type_text(field, email)
-        await self.click(sel("csfloat.onboard_email_submit"), "кнопку отправки письма")
-        await self.settle(2.5)
+        await self.click(sel("csfloat.onboard_email_verify"), "кнопку Verify")
+        await self.settle(3.0)
         await self.check_captcha("csfloat_onboard_email")
-        self.log.info("Онбординг: письмо подтверждения запрошено для %s", email)
-        return "email_sent"
+
+        if await self.first_visible(sel("csfloat.onboard_token_input"), timeout=20) is None:
+            self.log.warning("Поле для токена не появилось после Verify")
+            await self.ctx.dump("onboard_no_token_field", note="после Verify нет поля Token")
+            return "token_field_missing"
+
+        self.log.info("Онбординг: токен запрошен на %s", email)
+        return "token_sent"
+
+    async def submit_token(self, token: str) -> bool:
+        """Вводит токен из письма и отправляет форму."""
+        sel = self.ctx.sel
+        field = await self.require(sel("csfloat.onboard_token_input"), "поле токена", timeout=15)
+        await field.click()
+        await field.fill("")
+        await self.type_text(field, token)
+        await self.settle(0.8)
+        await self.click(sel("csfloat.onboard_token_submit"), "кнопку подтверждения токена", optional=True)
+        await self.settle(3.0)
+
+        if await self.first_visible(sel("csfloat.onboard_step_trade_link", required=False), timeout=6):
+            self.log.info("Почта подтверждена: мастер перешёл на шаг Trade Link")
+            return True
+        if await self.wait_gone(sel("csfloat.onboard_token_input"), timeout=10):
+            self.log.info("Почта подтверждена: поле токена исчезло")
+            return True
+        await self.ctx.dump("onboard_token_rejected", note="поле токена осталось на экране")
+        return False
 
     async def _tick_checkboxes(self) -> int:
         """Отмечает все согласия. Чекбоксы Angular Material — это не input,

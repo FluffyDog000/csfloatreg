@@ -135,11 +135,31 @@ csfloat:
     - "[role='dialog'] input[type='email']"
     - "mat-dialog-container input[formcontrolname='email']"
     - "mat-dialog-container input[placeholder*='mail' i]"
-  onboard_email_submit:
-    - "mat-dialog-container button:has-text('Send')"
+  # Шаг 2: почта + кнопка Verify (она отправляет токен), затем поле Token
+  onboard_email_verify:
     - "mat-dialog-container button:has-text('Verify')"
+    - "[role='dialog'] button:has-text('Verify')"
+    - "mat-dialog-container button:has-text('Send')"
+  onboard_token_input:
+    - "mat-dialog-container input[placeholder*='Token' i]"
+    - "[role='dialog'] input[placeholder*='Token' i]"
+    - "mat-dialog-container input[formcontrolname='token']"
+    - "mat-dialog-container input[name='token']"
+  onboard_token_submit:
     - "mat-dialog-container button:has-text('Next')"
+    - "mat-dialog-container button:has-text('Submit')"
+    - "mat-dialog-container button:has-text('Confirm')"
     - "[role='dialog'] button[type='submit']"
+  onboard_token_sent:
+    - "text=We sent a token to your email"
+    - "mat-dialog-container:has-text('sent a token')"
+  # Шаг 3 в мастере: значит шаг с почтой пройден
+  onboard_step_trade_link:
+    - "mat-dialog-container:has-text('Trade Link') .mat-step-header[aria-selected='true']"
+    - "mat-dialog-container:has-text('Find it here')"
+  onboard_email_submit:
+    - "mat-dialog-container button:has-text('Verify')"
+    - "mat-dialog-container button:has-text('Send')"
   settings_email_edit:
     - "button:has-text('Edit')"
     - "button:has-text('Change')"

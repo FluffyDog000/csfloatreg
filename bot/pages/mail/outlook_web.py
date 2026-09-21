@@ -15,7 +15,7 @@ from ...errors import (
 from urllib.parse import parse_qs, urlparse
 
 from ..base import PageHelper
-from .base import extract_link, register
+from .base import extract_link, extract_token, register
 
 LOGIN_URL = "https://login.live.com/"
 
@@ -257,6 +257,19 @@ class OutlookWebProvider:
 
     # ── поиск письма ─────────────────────────────────────────
     async def wait_for_link(self, pattern: str, *, timeout_s: float, poll_s: float) -> str:
+        return await self._wait_in_mail(
+            lambda page_html, body, hrefs: extract_link(pattern, page_html, body, hrefs),
+            timeout_s=timeout_s, poll_s=poll_s, what="ссылка подтверждения",
+        )
+
+    async def wait_for_code(self, pattern: str, *, timeout_s: float, poll_s: float) -> str:
+        # у токена приоритет за видимым текстом письма: в HTML слишком много мусора
+        return await self._wait_in_mail(
+            lambda page_html, body, hrefs: extract_token(pattern, body, page_html),
+            timeout_s=timeout_s, poll_s=poll_s, what="токен подтверждения",
+        )
+
+    async def _wait_in_mail(self, extractor, *, timeout_s: float, poll_s: float, what: str) -> str:
         helper = await self._ensure_page()
         folders = [("Входящие", self.cfg.get("mail.base_url", "https://outlook.live.com/mail/0/"))]
         if self.cfg.get("mail.check_junk", True):
@@ -268,23 +281,18 @@ class OutlookWebProvider:
             attempt += 1
             for title, url in folders:
                 self.log.debug("Проверяю папку «%s» (попытка %d)", title, attempt)
-                link = await self._scan_folder(helper, url, pattern)
-                if link:
-                    self.log.info("Ссылка подтверждения найдена в папке «%s»", title)
-                    return link
+                found = await self._scan_folder(helper, url, extractor)
+                if found:
+                    self.log.info("%s найден в папке «%s»", what.capitalize(), title)
+                    return found
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
             await asyncio.sleep(min(poll_s, max(1.0, remaining)))
 
-        raise MailNotReceived(f"письмо от CSFloat не пришло за {timeout_s:.0f} c")
+        raise MailNotReceived(f"письмо от CSFloat не пришло за {timeout_s:.0f} c ({what})")
 
-    async def wait_for_code(self, pattern: str, *, timeout_s: float, poll_s: float) -> str:
-        """Задел: те же поиски, но вытаскиваем код, а не ссылку."""
-        link = await self.wait_for_link(pattern, timeout_s=timeout_s, poll_s=poll_s)
-        return link
-
-    async def _scan_folder(self, helper: PageHelper, url: str, pattern: str) -> str | None:
+    async def _scan_folder(self, helper: PageHelper, url: str, extractor) -> str | None:
         sel = self.ctx.sel
         needle = (self.cfg.get("csfloat.mail_search") or "csfloat").lower()
         try:
@@ -295,9 +303,9 @@ class OutlookWebProvider:
             return None
 
         # 1) письмо может уже быть открыто в области чтения
-        link = extract_link(pattern, await helper.html())
-        if link:
-            return link
+        found = extractor(await helper.html(), await helper.text_of(sel("outlook.message_body"), timeout=2), "")
+        if found:
+            return found
 
         # 2) ищем письмо в списке
         for row_selector in sel("outlook.message_rows"):
@@ -313,9 +321,9 @@ class OutlookWebProvider:
                 except Exception:  # noqa: BLE001
                     continue
                 body = await helper.text_of(sel("outlook.message_body"), timeout=5)
-                link = extract_link(pattern, await helper.html(), body, await self._anchor_hrefs())
-                if link:
-                    return link
+                found = extractor(await helper.html(), body, await self._anchor_hrefs())
+                if found:
+                    return found
         return None
 
     async def _anchor_hrefs(self) -> str:
