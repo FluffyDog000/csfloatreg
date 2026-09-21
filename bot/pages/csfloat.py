@@ -15,6 +15,13 @@ class CsFloatPage(PageHelper):
         self.base_url = ctx.cfg.get("csfloat.base_url", "https://csfloat.com").rstrip("/")
         # адрес настроек известен не всегда: /profile/settings у CSFloat отдаёт 404
         self.settings_url = ctx.cfg.get("csfloat.settings_url") or None
+        if self.settings_url and self.settings_url.rstrip("/").endswith("/profile/settings"):
+            self.log.warning(
+                "csfloat.settings_url = %s — этот адрес отдаёт 404, игнорирую его. "
+                "Проверь свой config.yaml: в репозитории там null.",
+                self.settings_url,
+            )
+            self.settings_url = None
         self.profile_url = ctx.cfg.get("csfloat.profile_url") or f"{self.base_url}/profile"
 
     # ── сессия ───────────────────────────────────────────────

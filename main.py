@@ -66,6 +66,17 @@ def load_everything(args):
     return cfg, selectors, log_path
 
 
+def print_effective(cfg) -> None:
+    """Что бот реально прочитал из конфигов — чтобы не гадать, чей это файл."""
+    local = cfg.path.with_name(cfg.path.stem + ".local" + cfg.path.suffix) if cfg.path else None
+    print("\nНастройки, которые применились:")
+    print(f"  config.yaml        : {cfg.path}")
+    print(f"  config.local.yaml  : {local if local and local.exists() else '(нет)'}")
+    for key in ("csfloat.profile_url", "csfloat.settings_url", "browser.engine",
+                "browser.persistent_profile", "browser.firefox_prefs", "run.threads"):
+        print(f"  {key:<26} = {cfg.get(key)!r}")
+
+
 def print_check(bundles) -> None:
     ok = [b for b in bundles if not b.error]
     bad = [b for b in bundles if b.error]
@@ -281,6 +292,7 @@ async def run_cli(args) -> int:
 
     bundles = load_all(cfg)
     if args.check:
+        print_effective(cfg)
         print_check(bundles)
         return 0
 
