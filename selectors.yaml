@@ -75,33 +75,38 @@ steam:
     - "input[type='submit'][value='Sign In']"
 
 csfloat:
+  # Подтверждено на реальной разметке csfloat.com (Angular Material).
+  # Аватарка — картинка ВНУТРИ кнопки-триггера меню; при block_images она
+  # схлопывается до размера битой иконки, поэтому ловим саму кнопку.
   logged_in:
-    - "url:csfloat\\.com/profile"
+    - "button.mat-mdc-menu-trigger.user"
+    - ".balance-text"
     - "img.avatar"
-    - "[class*='avatar']"
-    - "button:has-text('Sign Out')"
+    - "url:csfloat\\.com/profile"
   sign_in_button:
+    - ".toolbar .login"
+    - "a.login"
+    - "button.login"
     - "a[href*='steam']:has-text('Sign')"
     - "button:has-text('Sign In')"
     - "a:has-text('Sign In')"
     - "img[alt*='Steam']"
   # Профиль открывается кликом по аватарке в правом верхнем углу
   avatar_menu_button:
+    - "button.mat-mdc-menu-trigger.user"
+    - "button:has(img.avatar)"
+    - ".toolbar button.mat-mdc-menu-trigger.user"
     - "img.avatar"
-    - "[class*='avatar'] img"
-    - "header img[src*='avatar']"
-    - "img[src*='avatars.steamstatic']"
-    - "button:has(img)"
-    - "[class*='avatar']"
+    - "button:has(img[src*='avatars.steamstatic'])"
   user_menu:
     - "[role='menu']"
     - ".mat-mdc-menu-panel"
     - "mat-menu-content"
   menu_profile:
-    - "[role='menuitem']:has-text('Profile')"
     - ".mat-mdc-menu-item:has-text('Profile')"
+    - "[role='menuitem']:has-text('Profile')"
+    - ".mat-mdc-menu-panel a[href*='profile']"
     - "[role='menu'] a:has-text('Profile')"
-    - "[role='menu'] button:has-text('Profile')"
     - "a:has-text('Profile')"
   cookie_accept:
     - "button:has-text('Accept')"
