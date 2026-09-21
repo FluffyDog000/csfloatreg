@@ -79,9 +79,11 @@ steam:
   time_sync: true            # синхронизация времени для TOTP
   time_sync_url: https://api.steampowered.com/ITwoFactorService/QueryTime/v0001/
   login_url: https://steamcommunity.com/login/home/
+  trade_url_page: https://steamcommunity.com/id/me/tradeoffers/privacy
 
 csfloat:
   base_url: https://csfloat.com
+  fill_trade_link: true      # шаг 3 мастера: взять трейд-ссылку из Steam и вставить
   login_attempts: 3          # CSFloat часто не подхватывает сессию с первого редиректа
   render_timeout_s: 25       # сколько ждать отрисовки SPA, прежде чем ругаться на пустую страницу
   profile_url: https://csfloat.com/profile

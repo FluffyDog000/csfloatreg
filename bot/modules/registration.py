@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from ..errors import MaFileEncrypted, MaFileMissing, UnexpectedState
 from ..pages.csfloat import CsFloatPage
+from ..pages.steam_trade import SteamTradePage
 from ..pages.mail.base import build_mail_provider
 from .base import register
 
@@ -75,9 +76,23 @@ class RegistrationModule:
                             raise UnexpectedState("окно Onboard закрылось, токен вводить некуда")
                     if not await cs.submit_token(token):
                         raise UnexpectedState("CSFloat не принял токен")
+                ctx.log.info("Почта подтверждена")
+
+                if ctx.cfg.get("csfloat.fill_trade_link", True):
+                    async with ctx.step("steam_trade_link", "беру трейд-ссылку из Steam"):
+                        trade = SteamTradePage(await ctx.session.page("steam_trade"), ctx)
+                        trade_url = await trade.fetch_trade_url()
+                        ctx.data["trade_url"] = trade_url
+
+                    async with ctx.step("csfloat_trade_link", "вставляю трейд-ссылку"):
+                        if not await cs.onboarding_visible(timeout=4):
+                            await cs.open_account_page()
+                            if not await cs.find_onboarding():
+                                raise UnexpectedState("окно Onboard закрылось, ссылку вставлять некуда")
+                        if not await cs.submit_trade_link(trade_url):
+                            raise UnexpectedState("CSFloat не принял трейд-ссылку")
 
                 await ctx.session.save_state()
-                ctx.log.info("Почта подтверждена")
                 return
 
             if state != "pending":

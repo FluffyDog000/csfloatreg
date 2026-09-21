@@ -282,6 +282,30 @@ class CsFloatPage(PageHelper):
         await self.ctx.dump("onboard_token_rejected", note="поле токена осталось на экране")
         return False
 
+    async def submit_trade_link(self, trade_url: str) -> bool:
+        """Шаг 3 мастера: вставляет трейд-ссылку из Steam."""
+        sel = self.ctx.sel
+        field = await self.first_visible(sel("csfloat.onboard_trade_input"), timeout=12)
+        if field is None:
+            await self.ctx.dump("onboard_no_trade_field", note="поле трейд-ссылки не найдено")
+            return False
+
+        await field.click()
+        await field.fill("")
+        await self.type_text(field, trade_url)
+        await self.settle(0.8)
+        await self.click(sel("csfloat.onboard_trade_submit"), "кнопку подтверждения трейд-ссылки", optional=True)
+        await self.settle(3.0)
+
+        if await self.first_visible(sel("csfloat.onboard_step_done", required=False), timeout=8):
+            self.log.info("Трейд-ссылка принята: мастер дошёл до последнего шага")
+            return True
+        if await self.wait_gone(sel("csfloat.onboard_trade_input"), timeout=8):
+            self.log.info("Трейд-ссылка принята: поле исчезло")
+            return True
+        await self.ctx.dump("onboard_trade_rejected", note="поле трейд-ссылки осталось на экране")
+        return False
+
     async def _tick_checkboxes(self) -> int:
         """Отмечает все согласия. Чекбоксы Angular Material — это не input,
         поэтому кликаем по самому элементу и проверяем состояние по атрибутам."""

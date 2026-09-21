@@ -66,6 +66,16 @@ steam:
     - "text=Use the Steam Mobile App to confirm"
     - "text=Confirm your sign in"
     - "text=Подтвердите вход в приложении"
+  # Страница приватности обменов: там лежит готовая трейд-ссылка
+  trade_url_input:
+    - "#trade_offer_access_url"
+    - "input[readonly][value*='tradeoffer']"
+    - "input[value*='partner=']"
+  trade_url_create:
+    - "#btn_create_new_trade_url"
+    - "a:has-text('Create New URL')"
+    - "button:has-text('Create New URL')"
+    - "a:has-text('Создать новый URL')"
   openid_page:
     - "url:steamcommunity\\.com/openid"
     - "url:steamcommunity\\.com/login"
@@ -153,6 +163,22 @@ csfloat:
   onboard_token_sent:
     - "text=We sent a token to your email"
     - "mat-dialog-container:has-text('sent a token')"
+  # Шаг 3: трейд-ссылка
+  onboard_trade_input:
+    - "mat-dialog-container input[placeholder*='trade' i]"
+    - "mat-dialog-container input[formcontrolname='tradeUrl']"
+    - "mat-dialog-container input[placeholder*='steamcommunity' i]"
+    - "mat-dialog-container input[type='url']"
+    - "[role='dialog'] input[type='text']"
+  onboard_trade_submit:
+    - "mat-dialog-container button:has-text('Next')"
+    - "mat-dialog-container button:has-text('Save')"
+    - "mat-dialog-container button:has-text('Submit')"
+    - "mat-dialog-container button:has-text('Finish')"
+  onboard_step_done:
+    - "mat-dialog-container:has-text(\"You're all set\")"
+    - "mat-dialog-container button:has-text('Finish')"
+    - "mat-dialog-container button:has-text('Close')"
   # Шаг 3 в мастере: значит шаг с почтой пройден
   onboard_step_trade_link:
     - "mat-dialog-container:has-text('Trade Link') .mat-step-header[aria-selected='true']"
