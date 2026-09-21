@@ -88,6 +88,8 @@ python main.py --only steamuser1 --debug --force
 python main.py --web            # хост/порт — в config.yaml, секция web
 ```
 
+![Веб-интерфейс](docs/preview-web.png)
+
 * старт/стоп прогона, потоки, `--only`, видимый браузер;
 * живой лог (SSE) и таблица статусов, обновляемая в реальном времени;
 * загрузка `accounts.txt` / `proxies.txt` / maFile'ов через браузер;

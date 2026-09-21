@@ -40,7 +40,8 @@
   .chip{background:var(--panel-2);border:1px solid var(--line);border-radius:999px;
         padding:3px 10px;font-size:12px;color:var(--muted)}
 
-  main{padding:18px;display:grid;grid-template-columns:1fr 420px;gap:16px;align-items:start}
+  main{padding:18px;display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:16px;align-items:start}
+  main > div{min-width:0}
   @media(max-width:1100px){main{grid-template-columns:1fr}}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
   .card h2{margin:0;padding:11px 14px;font-size:13px;letter-spacing:.4px;text-transform:uppercase;
@@ -56,10 +57,14 @@
   th{position:sticky;top:0;background:var(--panel-2);text-align:left;color:var(--muted);
      font-weight:500;padding:8px 10px;border-bottom:1px solid var(--line);z-index:1}
   td{padding:8px 10px;border-bottom:1px solid #1d222b;vertical-align:middle}
+  td.actions{white-space:nowrap;text-align:right;position:sticky;right:0;background:var(--panel)}
+  tr:hover td.actions{background:#171c24}
+  th:last-child{position:sticky;right:0}
+  td.actions button{margin-left:4px}
   tr:hover td{background:#171c24}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
   .muted{color:var(--muted)}
-  .truncate{max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+  .truncate{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
 
   .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;
          border:1px solid transparent;white-space:nowrap}
@@ -288,11 +293,16 @@ function render() {
     tdErr.appendChild(span);
     tr.appendChild(tdErr);
 
-    tr.appendChild(el('td', 'mono muted', acc.mail || '—'));
-    tr.appendChild(el('td', 'mono muted', acc.proxy));
+    [acc.mail || '—', acc.proxy].forEach(value => {
+      const td = el('td');
+      const span = el('span', 'truncate mono muted', value);
+      span.title = value;
+      td.appendChild(span);
+      tr.appendChild(td);
+    });
 
-    const tdAct = el('td');
-    const art = el('button', 'ghost', '🖼');
+    const tdAct = el('td', 'actions');
+    const art = el('button', 'ghost', '⛶');
     art.title = 'скриншоты и HTML ошибок';
     art.style.padding = '2px 8px';
     art.onclick = () => showArtifacts(acc.login);
