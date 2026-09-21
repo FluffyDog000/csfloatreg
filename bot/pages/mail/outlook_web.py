@@ -193,7 +193,12 @@ class OutlookWebProvider:
     async def _pass_interstitials(self, helper: PageHelper, *, rounds: int = 8) -> None:
         """«Оставаться в системе?», «Добавьте телефон», «Сведения безопасности» и прочее."""
         sel = self.ctx.sel
+        budget = float(self.cfg.get("timeouts.mail_login_s", 240))
+        deadline = time.monotonic() + budget
         for _ in range(rounds):
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise StepTimeout(f"вход в почту не завершился за {budget:.0f} c")
             state = await helper.wait_any(
                 {
                     "mailbox": sel("outlook.mailbox_ready") + ["url:outlook\\.live\\.com/mail"],
@@ -205,7 +210,7 @@ class OutlookWebProvider:
                     "wrong_password": sel("outlook.wrong_password"),
                     "captcha": sel("captcha.markers", required=False),
                 },
-                timeout=30,
+                timeout=min(45, max(10, left)),
             )
             await self._raise_on_bad_state(helper, state)
             if state == "mailbox":
