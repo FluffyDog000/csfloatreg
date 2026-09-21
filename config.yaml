@@ -83,7 +83,8 @@ csfloat:
   login_attempts: 3          # CSFloat часто не подхватывает сессию с первого редиректа
   render_timeout_s: 25       # сколько ждать отрисовки SPA, прежде чем ругаться на пустую страницу
   profile_url: https://csfloat.com/profile
-  settings_url: https://csfloat.com/profile/settings
+  settings_url: null         # отдельной страницы настроек не нашли: /profile/settings -> 404.
+                             # Пока null, бот работает с профилем. Если найдёшь адрес — впиши сюда.
   confirm_link_pattern: 'https?://[^\s"''<>)]*csfloat\.com[^\s"''<>)]*(?:verify|confirm)[^\s"''<>)]*'
   mail_search: csfloat       # подстрока для поиска письма в списке OWA.
                              # Ищется по всей строке письма, а там видно ИМЯ отправителя

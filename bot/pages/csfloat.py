@@ -13,7 +13,8 @@ class CsFloatPage(PageHelper):
     def __init__(self, page, ctx):
         super().__init__(page, ctx, name="csfloat")
         self.base_url = ctx.cfg.get("csfloat.base_url", "https://csfloat.com").rstrip("/")
-        self.settings_url = ctx.cfg.get("csfloat.settings_url") or f"{self.base_url}/profile/settings"
+        # адрес настроек известен не всегда: /profile/settings у CSFloat отдаёт 404
+        self.settings_url = ctx.cfg.get("csfloat.settings_url") or None
         self.profile_url = ctx.cfg.get("csfloat.profile_url") or f"{self.base_url}/profile"
 
     # ── сессия ───────────────────────────────────────────────
@@ -141,13 +142,15 @@ class CsFloatPage(PageHelper):
         await self.wait_rendered(timeout=self.cfg.get("csfloat.render_timeout_s", 25))
         await self.settle(1.5)
 
-        if "/profile" in self.page.url:
-            self.log.info("Профиль открыт: %s", self.page.url)
-        else:
-            self.log.warning(
-                "CSFloat увёл с %s на %s — пробую через меню аватарки", self.profile_url, self.page.url
-            )
+        url = self.page.url
+        if "/404" in url or "not-found" in url:
+            self.log.warning("Адрес %s отдал 404 — иду через меню аватарки", self.profile_url)
             await self._open_profile_via_menu()
+        elif "/profile" not in url:
+            self.log.warning("CSFloat увёл с %s на %s — иду через меню аватарки", self.profile_url, url)
+            await self._open_profile_via_menu()
+        else:
+            self.log.info("Профиль открыт: %s", url)
         await self.check_captcha("csfloat_profile")
 
     async def _open_profile_via_menu(self) -> bool:
@@ -167,10 +170,21 @@ class CsFloatPage(PageHelper):
         if item is None:
             self.log.debug("В меню аватарки нет пункта Profile")
             return False
+        href = None
+        try:
+            href = await item.get_attribute("href")
+        except Exception:  # noqa: BLE001
+            pass
         await item.click()
         await self.wait_rendered(timeout=self.cfg.get("csfloat.render_timeout_s", 25))
         await self.settle(1.5)
         self.log.info("Профиль открыт через меню аватарки, адрес: %s", self.page.url)
+        if self.page.url.rstrip("/") != self.profile_url.rstrip("/"):
+            self.log.info(
+                "ПОДСКАЗКА: пропиши в config.yaml  csfloat.profile_url: %s  — "
+                "тогда бот будет ходить туда напрямую, без меню%s",
+                self.page.url, f" (href пункта меню: {href})" if href else "",
+            )
         await self.check_captcha("csfloat_profile")
         return True
 
@@ -183,7 +197,10 @@ class CsFloatPage(PageHelper):
         if await self.onboarding_visible(timeout=2):
             self.log.info("Окно Onboard уже открыто на текущей странице")
             return True
-        for title, opener in (("профиль", self.open_profile), ("настройки", self.open_settings)):
+        pages = [("профиль", self.open_profile)]
+        if self.settings_url:
+            pages.append(("настройки", self.open_settings))
+        for title, opener in pages:
             await opener()
             if await self.onboarding_visible(timeout=4):
                 self.log.info("Окно Onboard найдено: %s", title)
@@ -273,7 +290,17 @@ class CsFloatPage(PageHelper):
             return False
 
     # ── почта в настройках ───────────────────────────────────
+    async def open_account_page(self) -> None:
+        """Страница аккаунта: настройки, если их адрес известен, иначе профиль."""
+        if self.settings_url:
+            await self.open_settings()
+        else:
+            await self.open_profile()
+
     async def open_settings(self) -> None:
+        if not self.settings_url:
+            self.log.debug("Адрес настроек не задан — пропускаю")
+            return
         await self.goto(self.settings_url)
         await self.wait_rendered(timeout=self.cfg.get("csfloat.render_timeout_s", 25))
         await self.settle(1.5)
@@ -307,7 +334,7 @@ class CsFloatPage(PageHelper):
 
     async def wait_email_verified(self, *, attempts: int = 3) -> bool:
         for attempt in range(1, attempts + 1):
-            await self.open_settings()
+            await self.open_account_page()
             state = await self.email_state()
             self.log.debug("Состояние почты в настройках: %s (попытка %d)", state, attempt)
             if state == "verified":

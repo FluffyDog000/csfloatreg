@@ -37,6 +37,7 @@ class RegistrationModule:
                 if await cs.find_onboarding():
                     state = "onboarding"
                 else:
+                    await cs.open_account_page()
                     state = await cs.email_state()
                 ctx.log.info("Состояние почты на CSFloat: %s", state)
 
