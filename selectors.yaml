@@ -223,6 +223,9 @@ outlook:
     - "div[data-value='Password']"
     - "div[role='button']:has-text('password')"
     - "text=Use your password"
+  # После входа Microsoft иногда уводит на главную страницу аккаунта
+  account_home:
+    - "url:account\\.microsoft\\.com"
   # Уведомление о приватности при первом входе:
   # privacynotice.account.microsoft.com/notice?ru=...
   privacy_notice:

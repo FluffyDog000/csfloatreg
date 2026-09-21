@@ -111,6 +111,12 @@ class OutlookWebProvider:
         await self._pass_interstitials(helper)
 
         if not await self._mailbox_ready(helper, timeout=45):
+            # последняя попытка: просто открыть ящик по адресу
+            self.log.info("Почта: ящик не открылся сам — перехожу по адресу")
+            await helper.goto(self.cfg.get("mail.base_url", "https://outlook.live.com/mail/0/"))
+            await helper.settle(3.0)
+
+        if not await self._mailbox_ready(helper, timeout=30):
             await helper.ensure_rendered("открытие почтового ящика", timeout=10)
             for marker in sel("outlook.signed_out", required=False):
                 if await helper.matches(marker, timeout=300):
@@ -203,6 +209,7 @@ class OutlookWebProvider:
                 {
                     "mailbox": sel("outlook.mailbox_ready") + ["url:outlook\\.live\\.com/mail"],
                     "privacy": sel("outlook.privacy_notice", required=False),
+                    "account_home": sel("outlook.account_home", required=False),
                     "stay_signed_in": ["text=Stay signed in?", "text=Не выходить из системы", "#KmsiCheckboxField"],
                     "skip": sel("outlook.skip_buttons"),
                     "blocked": sel("outlook.blocked"),
@@ -218,6 +225,12 @@ class OutlookWebProvider:
             if state == "privacy":
                 await self._pass_privacy_notice(helper)
                 await helper.settle(2.0)
+                continue
+            if state == "account_home":
+                # вход прошёл, но нас увело на страницу аккаунта — идём в ящик сами
+                self.log.info("Почта: Microsoft увёл на страницу аккаунта — открываю ящик")
+                await helper.goto(self.cfg.get("mail.base_url", "https://outlook.live.com/mail/0/"))
+                await helper.settle(2.5)
                 continue
             if state == "stay_signed_in":
                 markers = ["text=Stay signed in?", "text=Не выходить из системы", "#KmsiCheckboxField"]
