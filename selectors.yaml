@@ -85,6 +85,24 @@ csfloat:
     - "button:has-text('Sign In')"
     - "a:has-text('Sign In')"
     - "img[alt*='Steam']"
+  # Профиль открывается кликом по аватарке в правом верхнем углу
+  avatar_menu_button:
+    - "img.avatar"
+    - "[class*='avatar'] img"
+    - "header img[src*='avatar']"
+    - "img[src*='avatars.steamstatic']"
+    - "button:has(img)"
+    - "[class*='avatar']"
+  user_menu:
+    - "[role='menu']"
+    - ".mat-mdc-menu-panel"
+    - "mat-menu-content"
+  menu_profile:
+    - "[role='menuitem']:has-text('Profile')"
+    - ".mat-mdc-menu-item:has-text('Profile')"
+    - "[role='menu'] a:has-text('Profile')"
+    - "[role='menu'] button:has-text('Profile')"
+    - "a:has-text('Profile')"
   cookie_accept:
     - "button:has-text('Accept')"
     - "button:has-text('Got it')"

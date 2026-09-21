@@ -34,11 +34,9 @@ class RegistrationModule:
 
             # 4. Почта: либо мастер Onboard, либо поле в настройках
             async with ctx.step("csfloat_email_state", "смотрю текущее состояние почты"):
-                await cs.open_profile()
-                if await cs.onboarding_visible():
+                if await cs.find_onboarding():
                     state = "onboarding"
                 else:
-                    await cs.open_settings()
                     state = await cs.email_state()
                 ctx.log.info("Состояние почты на CSFloat: %s", state)
 

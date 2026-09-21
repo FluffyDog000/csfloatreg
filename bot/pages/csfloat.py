@@ -136,10 +136,56 @@ class CsFloatPage(PageHelper):
 
     # ── онбординг ────────────────────────────────────────────
     async def open_profile(self) -> None:
+        """Профиль открывается кликом по аватарке; прямой адрес — запасной путь."""
+        if await self._open_profile_via_menu():
+            return
+        self.log.info("Меню аватарки не сработало — открываю профиль по адресу")
         await self.goto(self.profile_url)
         await self.wait_rendered(timeout=self.cfg.get("csfloat.render_timeout_s", 25))
         await self.settle(1.5)
+        self.log.info("Профиль открыт, адрес: %s", self.page.url)
         await self.check_captcha("csfloat_profile")
+
+    async def _open_profile_via_menu(self) -> bool:
+        sel = self.ctx.sel
+        avatar = await self.first_visible(sel("csfloat.avatar_menu_button"), timeout=8)
+        if avatar is None:
+            self.log.debug("Аватарка не найдена")
+            return False
+        try:
+            await avatar.click()
+        except Exception as exc:  # noqa: BLE001
+            self.log.debug("Не удалось кликнуть по аватарке: %s", exc)
+            return False
+        await self.settle(1.0)
+
+        item = await self.first_visible(sel("csfloat.menu_profile"), timeout=5)
+        if item is None:
+            self.log.debug("В меню аватарки нет пункта Profile")
+            return False
+        await item.click()
+        await self.wait_rendered(timeout=self.cfg.get("csfloat.render_timeout_s", 25))
+        await self.settle(1.5)
+        self.log.info("Профиль открыт через меню аватарки, адрес: %s", self.page.url)
+        await self.check_captcha("csfloat_profile")
+        return True
+
+    async def find_onboarding(self) -> bool:
+        """Окно Onboard может висеть где угодно: на главной, в профиле, в настройках.
+
+        Проверяем текущую страницу, потом обходим оба адреса и в каждом случае
+        пишем, куда нас реально привело — CSFloat умеет редиректить.
+        """
+        if await self.onboarding_visible(timeout=2):
+            self.log.info("Окно Onboard уже открыто на текущей странице")
+            return True
+        for title, opener in (("профиль", self.open_profile), ("настройки", self.open_settings)):
+            await opener()
+            if await self.onboarding_visible(timeout=4):
+                self.log.info("Окно Onboard найдено: %s", title)
+                return True
+            self.log.info("Окно Onboard не найдено: %s (%s)", title, self.page.url)
+        return False
 
     async def onboarding_visible(self, timeout: float = 4) -> bool:
         """Окно Onboard: Terms -> Verify Email -> Trade Link -> Done."""
@@ -225,7 +271,9 @@ class CsFloatPage(PageHelper):
     # ── почта в настройках ───────────────────────────────────
     async def open_settings(self) -> None:
         await self.goto(self.settings_url)
+        await self.wait_rendered(timeout=self.cfg.get("csfloat.render_timeout_s", 25))
         await self.settle(1.5)
+        self.log.info("Настройки открыты, адрес: %s", self.page.url)
         await self.check_captcha("csfloat_settings")
 
     async def email_state(self) -> str:
