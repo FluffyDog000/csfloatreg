@@ -7,6 +7,9 @@ mafiles/
 # Личные настройки поверх config.yaml
 config.local.yaml
 
+# Бэкапы, которые делает веб-интерфейс при сохранении конфига
+*.bak*
+
 # Рантайм
 state/
 profiles/
