@@ -237,6 +237,15 @@ class BrowserSession:
         if locale and not options["geoip"]:
             options["locale"] = locale
 
+        if self.cfg.get("browser.disable_ublock", False):
+            try:
+                from camoufox.addons import DefaultAddons
+
+                options["exclude_addons"] = [DefaultAddons.UBO]
+                self.log.debug("uBlock Origin отключён")
+            except Exception as exc:  # noqa: BLE001
+                self.log.debug("Не удалось отключить uBlock: %s", exc)
+
         fingerprint = await self._fingerprint()
         if fingerprint:
             options["config"] = fingerprint
@@ -312,8 +321,40 @@ class BrowserSession:
         else:
             pages = context.pages
             page = pages[0] if pages else await context.new_page()
+        self._attach_diagnostics(page, name)
         self._pages[name] = page
         return page
+
+    def _attach_diagnostics(self, page, name: str) -> None:
+        """Без этого «белая страница» выглядит как «не нашёл селектор»."""
+        skip_types = {"image", "font", "media", "stylesheet"}
+
+        def on_failed(request) -> None:
+            try:
+                if request.resource_type in skip_types:
+                    return
+                self.log.warning(
+                    "[%s] запрос не прошёл: %s (%s)", name, request.url[:140], request.failure
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        def on_page_error(error) -> None:
+            self.log.warning("[%s] JS-ошибка на странице: %s", name, str(error)[:300])
+
+        def on_console(message) -> None:
+            try:
+                if message.type == "error":
+                    self.log.debug("[%s] console.error: %s", name, message.text[:300])
+            except Exception:  # noqa: BLE001
+                pass
+
+        try:
+            page.on("requestfailed", on_failed)
+            page.on("pageerror", on_page_error)
+            page.on("console", on_console)
+        except Exception as exc:  # noqa: BLE001
+            self.log.debug("Диагностика страницы не подключена: %s", exc)
 
     async def save_state(self, name: str | None = None) -> None:
         if self._persistent is not None:

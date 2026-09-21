@@ -133,6 +133,22 @@ class PageHelper:
         except Exception:  # noqa: BLE001
             return ""
 
+    async def wait_rendered(self, timeout: float = 20) -> bool:
+        """Ждёт, пока на странице появится хоть какой-то текст.
+
+        CSFloat — SPA: domcontentloaded наступает задолго до отрисовки, а если
+        бандл не загрузился, страница так и остаётся белой. Без этой проверки
+        белая страница выглядит как «не нашёл селектор», что уводит в сторону.
+        """
+        try:
+            await self.page.wait_for_function(
+                "() => document.body && document.body.innerText.trim().length > 0",
+                timeout=timeout * 1000,
+            )
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
     async def settle(self, seconds: float = 1.0) -> None:
         await asyncio.sleep(seconds + random.uniform(0, 0.4))
 

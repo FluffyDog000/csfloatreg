@@ -18,6 +18,13 @@ class CsFloatPage(PageHelper):
     # ── сессия ───────────────────────────────────────────────
     async def open_home(self) -> None:
         await self.goto(self.base_url + "/")
+        if not await self.wait_rendered(timeout=self.cfg.get("csfloat.render_timeout_s", 25)):
+            self.log.error(
+                "CSFloat отдал пустую страницу: приложение не отрисовалось. "
+                "Смотри выше строки 'запрос не прошёл' и 'JS-ошибка' — "
+                "чаще всего это блокировка ресурсов прокси или блокировщиком."
+            )
+            await self.ctx.dump("csfloat_blank", note="пустая страница csfloat.com")
         await self.settle(1.5)
         await self.click(self.ctx.sel("csfloat.cookie_accept", required=False), "баннер cookies", optional=True)
         await self.check_captcha("csfloat_home")

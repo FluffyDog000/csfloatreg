@@ -79,13 +79,22 @@ class AccountContext:
                 await self.debugger.after(self, name)
 
     async def dump(self, tag: str, *, note: str = "", debug: bool = False) -> list:
-        """Скриншот + HTML всех открытых страниц аккаунта."""
+        """Скриншот + HTML всех открытых страниц аккаунта.
+
+        Диагностика не имеет права ронять прогон: падение здесь заслонило бы
+        исходную ошибку, ради которой дамп и снимается.
+        """
         saved = []
+        if self.artifacts is None:
+            return saved
         pages = getattr(self.session, "_pages", {}) or {}
         for name, page in list(pages.items()):
-            saved += await self.artifacts.dump(
-                page, self.login, f"{self.module}_{tag}_{name}", debug=debug, note=note
-            )
+            try:
+                saved += await self.artifacts.dump(
+                    page, self.login, f"{self.module}_{tag}_{name}", debug=debug, note=note
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.log.debug("Не удалось снять дамп страницы '%s': %s", name, exc)
         if not pages:
             self.log.debug("Дамп пропущен: открытых страниц нет")
         elif saved:
