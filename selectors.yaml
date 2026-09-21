@@ -203,6 +203,20 @@ outlook:
     - "div[data-value='Password']"
     - "div[role='button']:has-text('password')"
     - "text=Use your password"
+  # Уведомление о приватности при первом входе:
+  # privacynotice.account.microsoft.com/notice?ru=...
+  privacy_notice:
+    - "url:privacynotice\\.account\\.microsoft\\.com"
+  privacy_next:
+    - "#id__0"
+    - "button:has-text('Next')"
+    - "button:has-text('Continue')"
+    - "button:has-text('Accept')"
+    - "button:has-text('Got it')"
+    - "button:has-text('Далее')"
+    - "button:has-text('Принять')"
+    - "input[type='submit']"
+    - "button[type='submit']"
   # "Оставаться в системе?"
   stay_signed_in_yes:
     - "#idSIButton9"

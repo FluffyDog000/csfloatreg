@@ -12,10 +12,23 @@ from ...errors import (
     StepTimeout,
     UnexpectedState,
 )
+from urllib.parse import parse_qs, urlparse
+
 from ..base import PageHelper
 from .base import extract_link, register
 
 LOGIN_URL = "https://login.live.com/"
+
+
+def _return_url(url: str) -> str | None:
+    """Адрес из параметра ru: куда Microsoft вернула бы нас после уведомления."""
+    try:
+        target = parse_qs(urlparse(url).query).get("ru", [None])[0]
+    except ValueError:
+        return None
+    if target and target.startswith("http"):
+        return target
+    return None
 
 
 @register("outlook_web")
@@ -92,6 +105,7 @@ class OutlookWebProvider:
         await helper.fill(sel("outlook.password_input"), self.account.mail_password, "поле пароля почты")
         await helper.click(sel("outlook.password_submit"), "кнопку входа в почту")
         await helper.settle(2.5)
+        await self._pass_privacy_notice(helper)
         await helper.ensure_rendered("вход в Outlook после пароля")
 
         await self._pass_interstitials(helper)
@@ -142,6 +156,40 @@ class OutlookWebProvider:
         if await helper.first_visible(sel("outlook.password_input"), timeout=10) is None:
             raise MailVerifyRequired("переключился на ввод пароля, но поле пароля не появилось")
 
+    async def _pass_privacy_notice(self, helper: PageHelper, *, rounds: int = 4) -> bool:
+        """Уведомление о приватности при первом входе.
+
+        Отдельная страница privacynotice.account.microsoft.com, из которой login
+        продолжается только после нажатия кнопки. Часто она вообще не
+        отрисовывается — тогда возвращаемся по адресу из параметра ru, это и есть
+        тот адрес, куда Microsoft вернула бы нас сама.
+        """
+        sel = self.ctx.sel
+        marker = sel("outlook.privacy_notice")[0]
+        if not await helper.matches(marker, timeout=400):
+            return False
+
+        self.log.info("Почта: уведомление о приватности — прохожу")
+        for attempt in range(1, rounds + 1):
+            clicked = await helper.click(sel("outlook.privacy_next"), "кнопку уведомления", optional=True)
+            if clicked is None:
+                target = _return_url(helper.page.url)
+                if not target:
+                    break
+                self.log.info("Кнопок на уведомлении нет — возвращаюсь по адресу из параметра ru")
+                await helper.goto(target)
+            await helper.settle(2.5)
+
+            if not await helper.matches(marker, timeout=400):
+                self.log.info("Почта: уведомление пройдено (попытка %d)", attempt)
+                return True
+
+        await self.ctx.dump("privacy_notice", note=f"не пройдено: {helper.page.url}")
+        await helper.ensure_rendered("уведомление о приватности", timeout=5)
+        raise UnexpectedState(
+            f"не удалось пройти уведомление о приватности Microsoft ({helper.page.url[:100]})"
+        )
+
     async def _pass_interstitials(self, helper: PageHelper, *, rounds: int = 8) -> None:
         """«Оставаться в системе?», «Добавьте телефон», «Сведения безопасности» и прочее."""
         sel = self.ctx.sel
@@ -149,6 +197,7 @@ class OutlookWebProvider:
             state = await helper.wait_any(
                 {
                     "mailbox": sel("outlook.mailbox_ready") + ["url:outlook\\.live\\.com/mail"],
+                    "privacy": sel("outlook.privacy_notice", required=False),
                     "stay_signed_in": ["text=Stay signed in?", "text=Не выходить из системы", "#KmsiCheckboxField"],
                     "skip": sel("outlook.skip_buttons"),
                     "blocked": sel("outlook.blocked"),
@@ -161,6 +210,10 @@ class OutlookWebProvider:
             await self._raise_on_bad_state(helper, state)
             if state == "mailbox":
                 return
+            if state == "privacy":
+                await self._pass_privacy_notice(helper)
+                await helper.settle(2.0)
+                continue
             if state == "stay_signed_in":
                 self.log.debug("Экран «Оставаться в системе?» — отвечаю «Да»")
                 await helper.click(sel("outlook.stay_signed_in_yes"), "кнопку «Да»", optional=True)
