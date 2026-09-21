@@ -101,6 +101,25 @@ class PageHelper:
             raise StepTimeout(f"не нашёл {what}; пробовал: {candidates}")
         return locator
 
+    async def wait_gone(self, candidates: list[str], *, timeout: float = 25) -> bool:
+        """Ждёт, пока экран уйдёт.
+
+        Нужно после кликов по промежуточным экранам: пока Microsoft крутит
+        спиннер, разметка ещё на месте, и без этого бот жмёт кнопку повторно.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            present = False
+            for candidate in candidates:
+                if await self.matches(candidate, timeout=150):
+                    present = True
+                    break
+            if not present:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.4)
+
     async def wait_any(self, groups: dict[str, list[str]], *, timeout: float, poll: float = 0.35) -> str:
         """Ждёт, какое из состояний наступит первым. Возвращает ключ группы."""
         deadline = time.monotonic() + timeout

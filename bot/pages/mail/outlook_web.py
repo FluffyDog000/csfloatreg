@@ -215,11 +215,16 @@ class OutlookWebProvider:
                 await helper.settle(2.0)
                 continue
             if state == "stay_signed_in":
-                self.log.debug("Экран «Оставаться в системе?» — отвечаю «Да»")
+                markers = ["text=Stay signed in?", "text=Не выходить из системы", "#KmsiCheckboxField"]
+                self.log.info("Почта: экран «Оставаться в системе?» — отвечаю «Да»")
                 await helper.click(sel("outlook.stay_signed_in_yes"), "кнопку «Да»", optional=True)
+                if not await helper.wait_gone(markers, timeout=40):
+                    self.log.info("Microsoft всё ещё обрабатывает ответ — жду дальше")
             elif state == "skip":
-                self.log.debug("Пропускаю предложение о сведениях безопасности")
-                await helper.click(sel("outlook.skip_buttons"), "кнопку пропуска", optional=True)
+                markers = sel("outlook.skip_buttons")
+                self.log.info("Почта: пропускаю предложение о сведениях безопасности")
+                await helper.click(markers, "кнопку пропуска", optional=True)
+                await helper.wait_gone(markers, timeout=25)
             await helper.settle(2.0)
 
     async def _raise_on_bad_state(self, helper: PageHelper, state: str) -> None:
