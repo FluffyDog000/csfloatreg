@@ -40,6 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="открыть один URL в настроенном браузере и показать, что с ним не так "
              "(по умолчанию csfloat.com); аккаунт берётся из --only или первый в списке",
     )
+    parser.add_argument(
+        "--reset", action="store_true",
+        help="стереть cookies и профиль браузера аккаунта (--only) или всех, и сбросить статусы",
+    )
     parser.add_argument("--check", action="store_true", help="проверить входные файлы и выйти")
     parser.add_argument("--log-level", default="INFO", help="уровень логов в консоли")
     parser.add_argument("--web", action="store_true", help="запустить веб-интерфейс вместо прогона")
@@ -65,6 +69,35 @@ def print_check(bundles) -> None:
         print(f"  {mark}{bundle.account.login:<24} {bundle.proxy.safe():<38} {bundle.error or ''}")
     if len(bundles) > 200:
         print(f"  … ещё {len(bundles) - 200}")
+
+
+async def run_reset(args) -> int:
+    """Стирает сессию аккаунта: cookies, профиль браузера, статусы в results.csv.
+
+    Закреплённый отпечаток сохраняется — он должен пережить сброс, иначе
+    аккаунт снова станет для Steam и Microsoft новым устройством.
+    """
+    from bot.storage import ResultsStore, StateStore
+
+    cfg, _selectors, _log_path = load_everything(args)
+    bundles = load_all(cfg)
+    if args.only:
+        bundles = [b for b in bundles if b.account.login.lower() == args.only.lower()]
+        if not bundles:
+            print(f"Аккаунт {args.only} не найден в accounts.txt", file=sys.stderr)
+            return 2
+
+    state = StateStore(cfg.path_for("state"), cfg.path_for("profiles"))
+    results = ResultsStore(cfg.path_for("results"))
+    modules = cfg.get("run.modules") or ["registration"]
+    for bundle in bundles:
+        login = bundle.account.login
+        state.forget(login)
+        for module in modules:
+            await results.update(login, module, status="new", stage="", error="", attempts=0)
+        print(f"  сброшен: {login}")
+    print(f"\nГотово: {len(bundles)} аккаунт(ов). Отпечатки в state/*.fp.json сохранены.")
+    return 0
 
 
 async def run_probe(args) -> int:
@@ -247,6 +280,8 @@ def main() -> int:
     try:
         if args.web:
             return run_web(args)
+        if args.reset:
+            return asyncio.run(run_reset(args))
         if args.probe is not None:
             return asyncio.run(run_probe(args))
         return asyncio.run(run_cli(args))
