@@ -101,7 +101,9 @@ async def run_probe(args) -> int:
         await session.start()
         page = await session.page("csfloat")
         account_log.info("Открываю %s", url)
-        await page.goto(url, wait_until="domcontentloaded", timeout=cfg.get("timeouts.page_load_ms", 60000))
+        response = await page.goto(
+            url, wait_until="domcontentloaded", timeout=cfg.get("timeouts.page_load_ms", 60000)
+        )
 
         rendered = True
         try:
@@ -115,11 +117,29 @@ async def run_probe(args) -> int:
         html = await page.content()
         text = await page.evaluate("() => (document.body ? document.body.innerText : '').trim()")
         title = await page.title()
+        user_agent = await page.evaluate("() => navigator.userAgent")
         saved = await artifacts.dump(page, bundle.account.login, "probe", debug=True, note=f"проба {url}")
 
         print("\n" + "─" * 64)
         print(f"  URL после загрузки : {page.url}")
+        if response is not None:
+            print(f"  HTTP-статус        : {response.status} {response.status_text}")
+            try:
+                headers = await response.all_headers()
+            except Exception:  # noqa: BLE001
+                headers = {}
+            interesting = (
+                "content-type", "content-length", "content-encoding", "server",
+                "cf-ray", "cf-mitigated", "cf-cache-status", "x-served-by", "location",
+                "retry-after", "set-cookie",
+            )
+            for name in interesting:
+                if name in headers:
+                    print(f"  {name:<18} : {headers[name][:120]}")
+        else:
+            print("  HTTP-статус        : ответа не было (навигация без запроса)")
         print(f"  Заголовок          : {title or '(пусто)'}")
+        print(f"  User-Agent         : {user_agent}")
         print(f"  HTML               : {len(html)} символов")
         print(f"  Видимый текст      : {len(text)} символов")
         print(f"  Отрисовалось       : {'да' if rendered else 'НЕТ — страница пустая'}")
@@ -127,6 +147,9 @@ async def run_probe(args) -> int:
             print(f"  Начало текста      : {text[:160]!r}")
         if saved:
             print(f"  Скриншот и HTML    : {saved[0].parent}")
+        if len(html) < 2000:
+            print("\n  HTML целиком (он подозрительно короткий):")
+            print("  " + html.replace("\n", "\n  ")[:1800])
         print("─" * 64)
         if not rendered:
             print(
