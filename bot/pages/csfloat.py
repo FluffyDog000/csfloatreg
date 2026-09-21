@@ -136,14 +136,18 @@ class CsFloatPage(PageHelper):
 
     # ── онбординг ────────────────────────────────────────────
     async def open_profile(self) -> None:
-        """Профиль открывается кликом по аватарке; прямой адрес — запасной путь."""
-        if await self._open_profile_via_menu():
-            return
-        self.log.info("Меню аватарки не сработало — открываю профиль по адресу")
+        """Прямой переход на /profile. Меню аватарки — только если нас увели."""
         await self.goto(self.profile_url)
         await self.wait_rendered(timeout=self.cfg.get("csfloat.render_timeout_s", 25))
         await self.settle(1.5)
-        self.log.info("Профиль открыт, адрес: %s", self.page.url)
+
+        if "/profile" in self.page.url:
+            self.log.info("Профиль открыт: %s", self.page.url)
+        else:
+            self.log.warning(
+                "CSFloat увёл с %s на %s — пробую через меню аватарки", self.profile_url, self.page.url
+            )
+            await self._open_profile_via_menu()
         await self.check_captcha("csfloat_profile")
 
     async def _open_profile_via_menu(self) -> bool:
