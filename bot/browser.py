@@ -23,6 +23,22 @@ from .errors import BrowserNotInstalled, NetworkError
 from .models import Proxy
 from .proxy_relay import SocksRelay, maybe_relay
 
+#: Адреса, падения которых ничего не значат: телеметрия, отчёты CSP, аналитика.
+_TELEMETRY_MARKERS = (
+    "cspv2.core.microsoft",
+    "browser.events.data.microsoft.com",
+    "events.data.microsoft.com",
+    "/csp/report",
+    "/report/",
+    "google-analytics.com",
+    "googletagmanager.com",
+    "sentry.io",
+    "datadoghq.com",
+    "/collect",
+    "/telemetry",
+    "/beacon",
+)
+
 _STEALTH_JS = """
 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
 window.chrome = window.chrome || {runtime: {}};
@@ -360,6 +376,7 @@ class BrowserSession:
     def _attach_diagnostics(self, page, name: str) -> None:
         """Без этого «белая страница» выглядит как «не нашёл селектор»."""
         skip_types = {"image", "font", "media", "stylesheet"}
+        seen_failures: set[str] = set()
 
         def on_response(response) -> None:
             # переходы бывают не только через goto: форма логина, редирект, клик
@@ -373,9 +390,13 @@ class BrowserSession:
             try:
                 if request.resource_type in skip_types:
                     return
-                self.log.warning(
-                    "[%s] запрос не прошёл: %s (%s)", name, request.url[:140], request.failure
-                )
+                url = request.url
+                if any(marker in url for marker in _TELEMETRY_MARKERS):
+                    return  # телеметрия и отчёты CSP падают постоянно и ни на что не влияют
+                if url[:140] in seen_failures:
+                    return  # один и тот же адрес не повторяем
+                seen_failures.add(url[:140])
+                self.log.warning("[%s] запрос не прошёл: %s (%s)", name, url[:140], request.failure)
             except Exception:  # noqa: BLE001
                 pass
 
