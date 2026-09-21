@@ -29,7 +29,7 @@ class RegistrationModule:
                     await ctx.session.save_state("csfloat")
 
             async with ctx.step("csfloat_session_check", "проверяю, что аккаунт создан"):
-                if not await cs.is_logged_in():
+                if not await cs.wait_logged_in():
                     raise UnexpectedState("сессия CSFloat не подтверждается после входа")
 
             # 4. Почта в настройках

@@ -18,6 +18,30 @@ from .base import PageHelper
 class SteamLoginPage(PageHelper):
     """Работает на любой странице входа Steam: и в попапе OpenID, и в той же вкладке."""
 
+    async def authorize(self, account, mafile, steam_time, success_markers: list[str]) -> None:
+        """Вход, учитывающий уже живую сессию Steam.
+
+        На повторном заходе Steam обычно авторизован: формы логина нет, есть
+        только кнопка подтверждения OpenID — либо редирект происходит сам.
+        """
+        sel = self.ctx.sel
+        for candidate in success_markers:
+            if await self.matches(candidate, timeout=300):
+                self.log.info("Steam уже авторизован, форма логина не нужна")
+                return
+
+        confirm = await self.first_visible(sel("steam.openid_signin_button", required=False), timeout=3)
+        if confirm is not None:
+            self.log.info("Steam уже авторизован — подтверждаю вход в OpenID")
+            await confirm.click()
+            await self.settle(2.0)
+            return
+
+        await self.perform(account, mafile, steam_time, success_markers)
+        await self.click(
+            sel("steam.openid_signin_button", required=False), "подтверждение OpenID", optional=True
+        )
+
     async def perform(self, account, mafile, steam_time, success_markers: list[str]) -> None:
         sel = self.ctx.sel
         await self.check_captcha("steam_login")

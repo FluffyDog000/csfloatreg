@@ -70,6 +70,7 @@ steam:
 
 csfloat:
   base_url: https://csfloat.com
+  login_attempts: 3          # CSFloat часто не подхватывает сессию с первого редиректа
   settings_url: https://csfloat.com/profile/settings
   confirm_link_pattern: 'https?://[^\s"''<>)]*csfloat\.com[^\s"''<>)]*(?:verify|confirm)[^\s"''<>)]*'
   mail_search: csfloat       # подстрока для поиска письма в списке OWA.

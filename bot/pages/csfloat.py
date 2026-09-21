@@ -22,47 +22,91 @@ class CsFloatPage(PageHelper):
         await self.click(self.ctx.sel("csfloat.cookie_accept", required=False), "баннер cookies", optional=True)
         await self.check_captcha("csfloat_home")
 
-    async def is_logged_in(self) -> bool:
+    async def is_logged_in(self, *, timeout: int = 1500) -> bool:
+        """Мгновенный срез. В циклах ожидания зови с маленьким timeout —
+        иначе каждая итерация стоит timeout × число кандидатов."""
         for candidate in self.ctx.sel("csfloat.logged_in"):
-            if await self.matches(candidate, timeout=1500):
+            if await self.matches(candidate, timeout=timeout):
+                return True
+        return False
+
+    async def wait_logged_in(self, timeout: float = 12) -> bool:
+        """CSFloat — SPA: аватар после редиректа появляется не мгновенно."""
+        markers = self.ctx.sel("csfloat.logged_in")
+        dom = [m for m in markers if not m.startswith("url:")]
+        if dom and await self.first_visible(dom, timeout=timeout) is not None:
+            return True
+        for candidate in markers:
+            if candidate.startswith("url:") and await self.matches(candidate):
                 return True
         return False
 
     async def login_via_steam(self, account, mafile, steam_time) -> None:
-        """Клик по «войти через Steam» + прохождение OpenID (в попапе или в той же вкладке)."""
-        sel = self.ctx.sel
-        context = self.page.context
-        popup: list = []
-        context.on("page", lambda page: popup.append(page))
+        """Вход через Steam OpenID с повторами.
 
+        CSFloat регулярно не подхватывает сессию с первого редиректа — лечится
+        повторным заходом. Повторяем внутри той же сессии: Steam уже авторизован,
+        так что второй проход идёт без пароля и кода, в отличие от ретрая всего
+        модуля с перезапуском браузера.
+        """
+        attempts = max(1, int(self.ctx.cfg.get("csfloat.login_attempts", 3)))
+        popup: list = []
+        self.page.context.on("page", lambda page: popup.append(page))
+
+        for attempt in range(1, attempts + 1):
+            if attempt > 1:
+                self.log.warning(
+                    "CSFloat не подхватил сессию Steam — повторяю вход (попытка %d из %d)",
+                    attempt, attempts,
+                )
+                await self.open_home()
+                if await self.wait_logged_in(timeout=5):
+                    self.log.info("CSFloat: вход выполнен")
+                    return
+
+            popup.clear()
+            await self._login_pass(account, mafile, steam_time, popup)
+
+            if await self.wait_logged_in():
+                self.log.info("CSFloat: вход выполнен")
+                return
+            await self.open_home()
+            if await self.wait_logged_in(timeout=6):
+                self.log.info("CSFloat: вход выполнен (сессия подхватилась после перезагрузки)")
+                return
+
+        raise UnexpectedState(
+            f"CSFloat не считает нас залогиненными после {attempts} попыток входа через Steam"
+        )
+
+    async def _login_pass(self, account, mafile, steam_time, popup: list) -> None:
+        """Один заход: кнопка входа -> Steam -> возврат на CSFloat."""
+        sel = self.ctx.sel
         await self.click(sel("csfloat.sign_in_button"), "кнопку входа через Steam")
         target = await self._resolve_steam_page(popup)
+        if target is None:
+            return  # Steam вернул нас сразу, форма логина не понадобилась
 
         steam = SteamLoginPage(target, self.ctx, name="steam")
         success_markers = sel("csfloat.logged_in") + [f"url:{re.escape(self._host())}"]
-        await steam.perform(account, mafile, steam_time, success_markers)
-
-        # OpenID иногда показывает промежуточную кнопку подтверждения
-        await steam.click(sel("steam.openid_signin_button", required=False), "подтверждение OpenID", optional=True)
+        await steam.authorize(account, mafile, steam_time, success_markers)
 
         if target is not self.page:
             for _ in range(30):
                 if target.is_closed():
                     break
                 await asyncio.sleep(0.5)
+            self.ctx.session._pages.pop("steam_popup", None)
             await self.page.reload(wait_until="domcontentloaded")
-
         await self.settle(2.0)
-        if not await self.is_logged_in():
-            await self.open_home()
-            if not await self.is_logged_in():
-                raise UnexpectedState("после редиректа со Steam CSFloat не считает нас залогиненными")
-        self.log.info("CSFloat: вход выполнен")
 
     async def _resolve_steam_page(self, popup: list):
-        """Steam может открыться в новой вкладке или в текущей."""
+        """Steam может открыться в новой вкладке, в текущей — или не открыться вовсе."""
         sel = self.ctx.sel
         for _ in range(24):
+            if await self.is_logged_in(timeout=250):
+                self.log.info("Steam авторизовал сразу, без формы логина")
+                return None
             if popup:
                 page = popup[-1]
                 try:
