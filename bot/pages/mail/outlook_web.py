@@ -271,14 +271,13 @@ class OutlookWebProvider:
     # ── поиск письма ─────────────────────────────────────────
     async def wait_for_link(self, pattern: str, *, timeout_s: float, poll_s: float) -> str:
         return await self._wait_in_mail(
-            lambda page_html, body, hrefs: extract_link(pattern, page_html, body, hrefs),
+            lambda sources: extract_link(pattern, *sources),
             timeout_s=timeout_s, poll_s=poll_s, what="ссылка подтверждения",
         )
 
     async def wait_for_code(self, pattern: str, *, timeout_s: float, poll_s: float) -> str:
-        # у токена приоритет за видимым текстом письма: в HTML слишком много мусора
         return await self._wait_in_mail(
-            lambda page_html, body, hrefs: extract_token(pattern, body, page_html),
+            lambda sources: extract_token(pattern, *sources),
             timeout_s=timeout_s, poll_s=poll_s, what="токен подтверждения",
         )
 
@@ -315,7 +314,7 @@ class OutlookWebProvider:
             return None
 
         # письмо могло уже открыться в области чтения
-        found = extractor(await helper.html(), await helper.text_of(sel("outlook.message_body"), timeout=2), "")
+        found = extractor(await self._sources(helper))
         if found:
             return found
 
@@ -362,12 +361,49 @@ class OutlookWebProvider:
                     self.log.debug("Клик по «%s» не открыл письмо", label)
                     continue
 
-                body = await helper.text_of(sel("outlook.message_body"), timeout=5)
-                found = extractor(await helper.html(), body, await self._anchor_hrefs())
+                sources = await self._sources(helper)
+                found = extractor(sources)
                 if found:
                     return found
-                self.log.debug("В письме ничего не нашлось (текста %d символов)", len(body))
+                self.log.info(
+                    "Письмо открыто (%s), но нужного в нём нет: источников %d, текста %d символов",
+                    label, len(sources), sum(len(x) for x in sources),
+                )
         return None
+
+    async def _sources(self, helper: PageHelper) -> list[str]:
+        """Текст письма живёт в iframe, поэтому собираем и страницу, и все фреймы.
+
+        Порядок важен: сначала видимый текст письма, потом текст фреймов, и только
+        потом HTML — в разметке слишком много мусора, из которого легко достать
+        случайную строку вместо токена.
+        """
+        sources: list[str] = []
+        body = await helper.text_of(self.ctx.sel("outlook.message_body"), timeout=3)
+        if body:
+            sources.append(body)
+
+        for frame in self.page.frames:
+            try:
+                text = await frame.evaluate("() => document.body ? document.body.innerText : ''")
+            except Exception:  # noqa: BLE001 — кросс-доменный фрейм читать нельзя
+                continue
+            if text and text.strip():
+                sources.append(text)
+
+        try:
+            sources.append(await helper.html())
+        except Exception:  # noqa: BLE001
+            pass
+        for frame in self.page.frames[1:]:
+            try:
+                sources.append(await frame.content())
+            except Exception:  # noqa: BLE001
+                continue
+        hrefs = await self._anchor_hrefs()
+        if hrefs:
+            sources.append(hrefs)
+        return sources
 
     async def _rows_by_selector(self, needle: str):
         """Строки списка по селекторам из конфига."""
