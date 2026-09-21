@@ -13,7 +13,7 @@ import re
 import time
 
 from ..captcha import detect as detect_captcha
-from ..errors import NetworkError, ProxyAuthFailed, StepTimeout
+from ..errors import NetworkError, ProxyAuthFailed, StepTimeout, UnexpectedState
 
 #: Коды, которые отдаёт шлюз/прокси, а не сам сайт: ретраить, а не искать селекторы.
 _GATEWAY_STATUSES = {502, 503, 504, 520, 521, 522, 523, 524}
@@ -169,6 +169,28 @@ class PageHelper:
             return True
         except Exception:  # noqa: BLE001
             return False
+
+    async def ensure_rendered(self, what: str, *, timeout: float = 20) -> None:
+        """Пустая страница после клика или редиректа — тоже повод назвать причину.
+
+        goto проверяет код ответа сам, но переход бывает и по клику: форма
+        логина, редирект провайдера. Здесь смотрим код последнего перехода в
+        главном фрейме и по нему решаем, прокси это или сам сайт.
+        """
+        if await self.wait_rendered(timeout=timeout):
+            return
+
+        last = None
+        session = getattr(self.ctx, "session", None)
+        if session is not None and hasattr(session, "last_status"):
+            last = session.last_status(self.name)
+
+        if last:
+            status, url = last
+            self.log.error("Пустая страница, последний переход: %s -> %s", status, url)
+            self.check_status(status, url)          # 5xx/407/429 поднимут свою ошибку
+        await self.ctx.dump(f"blank_{self.name}", note=f"{what}: пустая страница, {last}")
+        raise UnexpectedState(f"{what}: страница осталась пустой ({self.page.url})")
 
     async def settle(self, seconds: float = 1.0) -> None:
         await asyncio.sleep(seconds + random.uniform(0, 0.4))

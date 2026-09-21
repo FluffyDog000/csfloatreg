@@ -87,10 +87,12 @@ class OutlookWebProvider:
         await helper.fill(sel("outlook.password_input"), self.account.mail_password, "поле пароля почты")
         await helper.click(sel("outlook.password_submit"), "кнопку входа в почту")
         await helper.settle(2.5)
+        await helper.ensure_rendered("вход в Outlook после пароля")
 
         await self._pass_interstitials(helper)
 
         if not await self._mailbox_ready(helper, timeout=45):
+            await helper.ensure_rendered("открытие почтового ящика", timeout=10)
             raise StepTimeout("почтовый ящик так и не открылся после входа")
         self.log.info("Почта: вход выполнен")
 

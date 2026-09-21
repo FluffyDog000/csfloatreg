@@ -99,6 +99,7 @@ class BrowserSession:
         self._relay: SocksRelay | None = None
         self._contexts: dict[str, object] = {}
         self._pages: dict[str, object] = {}
+        self._last_status: dict[str, tuple[int, str]] = {}
 
         rng = _stable_random(login)
         viewports = cfg.get("browser.viewports") or [[1366, 768]]
@@ -352,9 +353,21 @@ class BrowserSession:
         self._pages[name] = page
         return page
 
+    def last_status(self, name: str) -> tuple[int, str] | None:
+        """Код ответа последнего перехода в главном фрейме страницы."""
+        return self._last_status.get(name)
+
     def _attach_diagnostics(self, page, name: str) -> None:
         """Без этого «белая страница» выглядит как «не нашёл селектор»."""
         skip_types = {"image", "font", "media", "stylesheet"}
+
+        def on_response(response) -> None:
+            # переходы бывают не только через goto: форма логина, редирект, клик
+            try:
+                if response.request.is_navigation_request() and response.frame == page.main_frame:
+                    self._last_status[name] = (response.status, response.url)
+            except Exception:  # noqa: BLE001
+                pass
 
         def on_failed(request) -> None:
             try:
@@ -377,6 +390,7 @@ class BrowserSession:
                 pass
 
         try:
+            page.on("response", on_response)
             page.on("requestfailed", on_failed)
             page.on("pageerror", on_page_error)
             page.on("console", on_console)
