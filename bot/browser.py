@@ -19,7 +19,7 @@ import time
 from functools import partial
 from pathlib import Path
 
-from .errors import NetworkError
+from .errors import BrowserNotInstalled, NetworkError
 from .models import Proxy
 from .proxy_relay import SocksRelay, maybe_relay
 
@@ -28,6 +28,30 @@ Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
 window.chrome = window.chrome || {runtime: {}};
 Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
 """
+
+
+#: Признаки того, что браузер просто не скачан, а не отвалилась сеть.
+_NOT_INSTALLED_MARKERS = (
+    "is not installed",
+    "not installed",
+    "camoufox fetch",
+    "executable doesn't exist",
+    "executable not found",
+    "no such file or directory",
+)
+
+
+def classify_launch_error(exc: Exception, engine: str) -> Exception:
+    """Не скачанный браузер — фатальная ошибка: три ретрая по 10 секунд её не вылечат."""
+    text = str(exc).lower()
+    if any(marker in text for marker in _NOT_INSTALLED_MARKERS):
+        hint = (
+            "выполни `python -m camoufox fetch` в том же окружении"
+            if engine == "camoufox"
+            else f"выполни `playwright install {engine}`"
+        )
+        return BrowserNotInstalled(f"браузер {engine} не установлен: {exc.__class__.__name__}. {hint}")
+    return NetworkError(f"не удалось запустить браузер: {exc}")
 
 
 #: Ключи, которые НЕ закрепляем: их должен пересчитывать geoip под IP прокси.
@@ -103,9 +127,9 @@ class BrowserSession:
                 await self._start_playwright(engine, proxy_cfg)
         except ImportError:
             raise
-        except Exception as exc:  # noqa: BLE001 — падение запуска лечится повтором
+        except Exception as exc:  # noqa: BLE001
             await self.close()
-            raise NetworkError(f"не удалось запустить браузер: {exc}") from exc
+            raise classify_launch_error(exc, engine) from exc
         return self
 
     def _headless_mode(self):
@@ -182,7 +206,11 @@ class BrowserSession:
             self.log.info("Отпечаток сгенерирован и закреплён за аккаунтом (%d свойств)", len(config))
             return config
         except Exception as exc:  # noqa: BLE001 — не повод не запускать браузер
-            self.log.warning("Не удалось закрепить отпечаток (%s) — Camoufox сгенерирует свой", exc)
+            if any(marker in str(exc).lower() for marker in _NOT_INSTALLED_MARKERS):
+                # про отсутствующий браузер скажет сам запуск, понятнее и один раз
+                self.log.debug("Отпечаток не закреплён: браузер не установлен")
+            else:
+                self.log.warning("Не удалось закрепить отпечаток (%s) — Camoufox сгенерирует свой", exc)
             return None
 
     async def _start_camoufox(self, proxy_cfg: dict) -> None:

@@ -142,6 +142,7 @@ python main.py --web            # хост/порт — в config.yaml, секц
 | `mail_blocked` | Outlook заблокировал аккаунт | нет |
 | `mail_verify_required` | Outlook требует верификацию личности, и перехода на ввод пароля нет | нет |
 | `mail_not_received` | письмо не пришло за `timeouts.mail_wait_s` | да |
+| `browser_missing` | движок браузера не скачан — прогон останавливается сразу | нет |
 | `not_implemented` | модуль-заглушка (api_key) | нет |
 
 При любой ошибке в `errors/<login>/` кладутся скриншот, HTML и текст ошибки.

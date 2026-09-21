@@ -87,6 +87,12 @@ class MailNotReceived(FatalError):
     status = "mail_not_received"
 
 
+class BrowserNotInstalled(FatalError):
+    """Движок браузера не скачан. Ретраить бессмысленно — нужен `camoufox fetch`."""
+
+    status = "browser_missing"
+
+
 class NotImplementedYet(FatalError):
     status = "not_implemented"
 

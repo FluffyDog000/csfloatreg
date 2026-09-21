@@ -9,7 +9,7 @@ from .browser import BrowserSession
 from .captcha import build_solver
 from .context import AccountContext
 from .debug import Debugger
-from .errors import BotError, MaFileMissing, RetryableError
+from .errors import BotError, BrowserNotInstalled, MaFileMissing, RetryableError
 from .events import hub as default_hub
 from .logging_setup import get_logger
 from .models import Bundle, Status
@@ -155,6 +155,7 @@ class Runner:
                 module=module.name,
                 attempt=attempt,
             )
+            ctx.stage = "browser"
             try:
                 await session.start()
                 if self.debug:
@@ -162,10 +163,11 @@ class Runner:
                     await module.run(ctx)
                 else:
                     await asyncio.wait_for(module.run(ctx), timeout=float(self.cfg.get("timeouts.module_s", 900)))
-            except ImportError as exc:
+            except (ImportError, BrowserNotInstalled) as exc:
                 # движок браузера не установлен — повторять бессмысленно, останавливаем прогон
+                status = getattr(exc, "status", Status.ERROR)
                 log.error("%s", exc)
-                await self._record(login, module.name, Status.ERROR, "browser", str(exc), attempt)
+                await self._record(login, module.name, status, "browser", str(exc), attempt)
                 self.hub.publish("run", state="failed", error=str(exc))
                 self.stop()
                 return
