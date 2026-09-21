@@ -72,7 +72,10 @@ csfloat:
   base_url: https://csfloat.com
   settings_url: https://csfloat.com/profile/settings
   confirm_link_pattern: 'https?://[^\s"''<>)]*csfloat\.com[^\s"''<>)]*(?:verify|confirm)[^\s"''<>)]*'
-  mail_from: csfloat.com     # подстрока отправителя/темы для поиска письма
+  mail_search: csfloat       # подстрока для поиска письма в списке OWA.
+                             # Ищется по всей строке письма, а там видно ИМЯ отправителя
+                             # ("CSFloat"), а не адрес — домен сюда писать нельзя.
+                             # :has-text() регистронезависим.
 
 mail:
   provider: outlook_web      # реализации в bot/pages/mail/

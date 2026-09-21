@@ -131,6 +131,26 @@ outlook:
     - "#idSIButton9"
     - "input[type='submit']"
     - "button[type='submit']"
+  # Microsoft всё чаще предлагает код вместо пароля — ссылка «ввести пароль»
+  use_password:
+    - "#idA_PWD_SwitchToPassword"
+    - "a:has-text('Use your password')"
+    - "button:has-text('Use your password')"
+    - "a:has-text('Use your password instead')"
+    - "a:has-text('Ввести пароль')"
+    - "text=Use your password"
+  # запасной путь: «другие способы входа» -> плитка с паролем
+  other_sign_in_ways:
+    - "#idA_PWD_SwitchToCredPicker"
+    - "a:has-text('Other ways to sign in')"
+    - "button:has-text('Other ways to sign in')"
+    - "a:has-text('Sign in another way')"
+    - "a:has-text('Другие способы входа')"
+  cred_picker_password:
+    - "#FormsAuthentication"
+    - "div[data-value='Password']"
+    - "div[role='button']:has-text('password')"
+    - "text=Use your password"
   # "Оставаться в системе?"
   stay_signed_in_yes:
     - "#idSIButton9"

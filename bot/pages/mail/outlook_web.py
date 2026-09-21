@@ -67,13 +67,20 @@ class OutlookWebProvider:
         state = await helper.wait_any(
             {
                 "password": sel("outlook.password_input"),
+                "wrong_password": sel("outlook.wrong_password"),
+                # порядок важен: экран с кодом отличается от настоящей верификации
+                # именно наличием перехода на пароль, поэтому проверяем его раньше
+                "passwordless": sel("outlook.use_password", required=False)
+                + sel("outlook.other_sign_in_ways", required=False),
                 "blocked": sel("outlook.blocked"),
                 "verify_required": sel("outlook.verify_required"),
-                "wrong_password": sel("outlook.wrong_password"),
                 "captcha": sel("captcha.markers", required=False),
             },
             timeout=45,
         )
+        if state == "passwordless":
+            await self._switch_to_password(helper)
+            state = "password"
         await self._raise_on_bad_state(helper, state)
 
         self.log.info("Почта: ввожу пароль")
@@ -86,6 +93,41 @@ class OutlookWebProvider:
         if not await self._mailbox_ready(helper, timeout=45):
             raise StepTimeout("почтовый ящик так и не открылся после входа")
         self.log.info("Почта: вход выполнен")
+
+    async def _switch_to_password(self, helper: PageHelper) -> None:
+        """«Отправим код на почту» -> «ввести пароль».
+
+        Microsoft всё чаще делает вход по коду вариантом по умолчанию. Экран с
+        вводом кода внешне совпадает с настоящей верификацией личности, но
+        отличается наличием перехода на пароль — если перехода нет, это
+        действительно верификация, и аккаунт честно помечается ошибкой.
+        """
+        sel = self.ctx.sel
+        self.log.info("Почта: Microsoft предлагает вход по коду — переключаюсь на пароль")
+
+        clicked = await helper.click(
+            sel("outlook.use_password", required=False), "переход «ввести пароль»", optional=True
+        )
+        if clicked is None:
+            clicked = await helper.click(
+                sel("outlook.other_sign_in_ways", required=False),
+                "переход «другие способы входа»",
+                optional=True,
+            )
+            if clicked is None:
+                raise MailVerifyRequired(
+                    "Microsoft требует вход по коду, перехода на ввод пароля на странице нет"
+                )
+            await helper.settle(1.5)
+            await helper.click(
+                sel("outlook.cred_picker_password", required=False),
+                "вариант «пароль» в списке способов входа",
+                optional=True,
+            )
+        await helper.settle(1.5)
+
+        if await helper.first_visible(sel("outlook.password_input"), timeout=10) is None:
+            raise MailVerifyRequired("переключился на ввод пароля, но поле пароля не появилось")
 
     async def _pass_interstitials(self, helper: PageHelper, *, rounds: int = 8) -> None:
         """«Оставаться в системе?», «Добавьте телефон», «Сведения безопасности» и прочее."""
@@ -125,11 +167,17 @@ class OutlookWebProvider:
             await helper.check_captcha("mail_login")
 
     async def _mailbox_ready(self, helper: PageHelper, *, timeout: float = 8) -> bool:
-        markers = self.ctx.sel("outlook.mailbox_ready") + ["url:outlook\\.live\\.com/mail"]
-        locator = await helper.first_visible([m for m in markers if not m.startswith("url:")], timeout=timeout)
-        if locator is not None:
+        markers = [m for m in self.ctx.sel("outlook.mailbox_ready") if not m.startswith("url:")]
+        if await helper.first_visible(markers, timeout=timeout) is not None:
             return True
-        return await helper.matches("url:outlook\\.live\\.com/mail/\\d")
+
+        # URL сам по себе не доказательство: на /mail/0/ может висеть редирект на логин
+        if not await helper.matches(r"url:outlook\.live\.com/mail/\d"):
+            return False
+        for candidate in self.ctx.sel("outlook.email_input") + self.ctx.sel("outlook.password_input"):
+            if await helper.matches(candidate):
+                return False
+        return True
 
     # ── поиск письма ─────────────────────────────────────────
     async def wait_for_link(self, pattern: str, *, timeout_s: float, poll_s: float) -> str:
@@ -162,7 +210,7 @@ class OutlookWebProvider:
 
     async def _scan_folder(self, helper: PageHelper, url: str, pattern: str) -> str | None:
         sel = self.ctx.sel
-        needle = (self.cfg.get("csfloat.mail_from") or "csfloat").lower()
+        needle = (self.cfg.get("csfloat.mail_search") or "csfloat").lower()
         try:
             await helper.goto(url)
             await helper.settle(2.0)
