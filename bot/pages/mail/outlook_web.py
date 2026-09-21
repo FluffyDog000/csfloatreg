@@ -10,6 +10,7 @@ from ...errors import (
     MailNotReceived,
     MailVerifyRequired,
     StepTimeout,
+    UnexpectedState,
 )
 from ..base import PageHelper
 from .base import extract_link, register
@@ -54,6 +55,10 @@ class OutlookWebProvider:
         if await self._mailbox_ready(helper):
             self.log.info("Почта: сессия восстановлена из cookies")
             return
+        for marker in sel("outlook.signed_out", required=False):
+            if await helper.matches(marker, timeout=300):
+                self.log.info("Почта: сессии нет, Microsoft увёл на %s — иду на форму входа", helper.page.url[:80])
+                break
 
         await helper.goto(LOGIN_URL)
         await helper.settle(1.5)
@@ -93,6 +98,12 @@ class OutlookWebProvider:
 
         if not await self._mailbox_ready(helper, timeout=45):
             await helper.ensure_rendered("открытие почтового ящика", timeout=10)
+            for marker in sel("outlook.signed_out", required=False):
+                if await helper.matches(marker, timeout=300):
+                    raise UnexpectedState(
+                        f"после входа Microsoft снова показывает страницу для незалогиненных "
+                        f"({helper.page.url[:90]}) — сессия не сохранилась"
+                    )
             raise StepTimeout("почтовый ящик так и не открылся после входа")
         self.log.info("Почта: вход выполнен")
 

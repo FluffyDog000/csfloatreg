@@ -232,6 +232,12 @@ outlook:
     - "text=Verify your identity"
     - "text=Enter the code"
     - "url:account\\.live\\.com/identity/confirm"
+  # Microsoft уводит разлогиненных на маркетинговую страницу с deeplink
+  signed_out:
+    - "url:microsoft\\.com/.*outlook"
+    - "url:deeplink="
+    - "#c-shellmenu_custom_outline_signin_bhvr100_right"
+    - "a:has-text('Create free account')"
   mailbox_ready:
     - "div[role='listbox']"
     - "[aria-label='Message list']"
