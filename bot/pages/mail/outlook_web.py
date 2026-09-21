@@ -313,6 +313,16 @@ class OutlookWebProvider:
             self.log.debug("Не удалось открыть папку: %s", exc)
             return None
 
+        # список писем на медленном прокси рисуется не сразу; без этого ожидания
+        # бот считал строки раньше, чем они появлялись, и решал, что писем нет
+        waited = await helper.first_visible(
+            self.ctx.sel("outlook.message_rows"),
+            timeout=float(self.cfg.get("timeouts.mail_list_s", 30)),
+        )
+        if waited is None:
+            self.log.info("Список писем не отрисовался")
+            return None
+
         # письмо могло уже открыться в области чтения
         found = extractor(await self._sources(helper))
         if found:
@@ -406,18 +416,29 @@ class OutlookWebProvider:
         return sources
 
     async def _rows_by_selector(self, needle: str):
-        """Строки списка по селекторам из конфига."""
+        """Строки списка по селекторам из конфига.
+
+        Если по тексту ничего не нашлось, а строки есть — открываем первые
+        несколько: нужное письмо обычно самое свежее, а лишнее открытое письмо
+        ничему не мешает.
+        """
         for row_selector in self.ctx.sel("outlook.message_rows"):
-            rows = self.page.locator(f"{row_selector}:has-text('{needle}')")
+            all_rows = self.page.locator(row_selector)
+            matching = self.page.locator(f"{row_selector}:has-text('{needle}')")
             try:
-                count = await rows.count()
+                total = await all_rows.count()
+                count = await matching.count()
             except Exception:  # noqa: BLE001
                 continue
-            if not count:
+            if not total:
                 continue
-            self.log.info("Писем от CSFloat в списке: %d (%s)", count, row_selector)
-            for index in range(min(count, 5)):
-                yield f"{row_selector}#{index}", rows.nth(index)
+            self.log.info(
+                "Строк списка (%s): всего %d, с текстом «%s» %d", row_selector, total, needle, count
+            )
+
+            rows, limit, label = (matching, min(count, 5), "по тексту") if count else (all_rows, min(total, 3), "первые")
+            for index in range(limit):
+                yield f"{row_selector} {label}#{index}", rows.nth(index)
 
     async def _rows_by_text(self, text: str):
         """Запасной путь: клик по видимому тексту письма, без опоры на разметку."""
