@@ -66,6 +66,46 @@ def _suggest(el: dict) -> str:
     return el["tag"]
 
 
+async def collect_page(page) -> dict | None:
+    """Снимает со страницы все видимые интерактивные элементы + iframe'ы.
+
+    Используется и паузой отладчика, и командой --probe: это главный источник
+    данных для selectors.yaml.
+    """
+    try:
+        main = await page.evaluate(_COLLECT_JS)
+    except Exception:  # noqa: BLE001
+        return None
+    for element in main["elements"]:
+        element["suggest"] = _suggest(element)
+
+    frames = []
+    for frame in page.frames[1:]:
+        try:
+            data = await frame.evaluate(_COLLECT_JS)
+        except Exception:  # noqa: BLE001 — cross-origin читать нельзя, это нормально
+            frames.append({"frame_url": frame.url, "error": "недоступен (cross-origin)"})
+            continue
+        for element in data["elements"]:
+            element["suggest"] = _suggest(element)
+        data["frame_url"] = frame.url
+        frames.append(data)
+    return {"main": main, "frames": frames}
+
+
+def print_candidates(report: dict, limit: int = 40) -> None:
+    """Печатает кандидатов так, чтобы вывод можно было просто скопировать."""
+    elements = report["main"]["elements"]
+    print(f"\n  Кандидаты ({len(elements)} видимых элементов):")
+    print(f"  {'тег':<10} {'селектор-кандидат':<48} текст / подпись")
+    print("  " + "─" * 96)
+    for element in elements[:limit]:
+        label = element["text"] or element["aria"] or element["placeholder"] or element["name"] or element["id"]
+        print(f"  {element['tag']:<10} {element['suggest']:<48} {label[:36]}")
+    if len(elements) > limit:
+        print(f"  … ещё {len(elements) - limit}, полный список в JSON")
+
+
 class Debugger:
     def __init__(self, cfg, logger, artifacts, *, enabled: bool = True):
         self.cfg = cfg
@@ -125,29 +165,14 @@ class Debugger:
             self.log.warning("Нет открытой страницы для дампа")
             return None
 
-        report: dict = {"step": ctx.stage, "module": ctx.module, "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
-        try:
-            main = await page.evaluate(_COLLECT_JS)
-        except Exception as exc:  # noqa: BLE001
-            self.log.warning("Не удалось собрать элементы: %s", exc)
+        collected = await collect_page(page)
+        if collected is None:
+            self.log.warning("Не удалось собрать элементы страницы")
             return None
-
-        for el in main["elements"]:
-            el["suggest"] = _suggest(el)
-        report["main"] = main
-
-        frames = []
-        for frame in page.frames[1:]:
-            try:
-                data = await frame.evaluate(_COLLECT_JS)
-            except Exception:  # noqa: BLE001 — cross-origin iframe читать нельзя, это нормально
-                frames.append({"url": frame.url, "error": "недоступен (cross-origin)"})
-                continue
-            for el in data["elements"]:
-                el["suggest"] = _suggest(el)
-            data["frame_url"] = frame.url
-            frames.append(data)
-        report["frames"] = frames
+        report: dict = {
+            "step": ctx.stage, "module": ctx.module,
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S"), **collected,
+        }
 
         folder = self.artifacts.dir_for(ctx.login, debug=True)
         name = f"{time.strftime('%H%M%S')}_{ctx.module or 'step'}_{ctx.stage or 'page'}"
@@ -155,13 +180,8 @@ class Debugger:
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         await ctx.dump(f"debug_{ctx.stage}", debug=True)
 
-        print(f"\n  Кандидаты ({len(main['elements'])} элементов) -> {path}")
-        for el in main["elements"][:25]:
-            label = el["text"] or el["aria"] or el["placeholder"] or el["name"] or el["id"]
-            print(f"    {el['tag']:<9} {el['suggest']:<46} {label[:40]}")
-        if len(main["elements"]) > 25:
-            print(f"    … ещё {len(main['elements']) - 25}, полный список в JSON")
-        print(flush=True)
+        print_candidates(report)
+        print(f"  Полный дамп: {path}\n", flush=True)
         return report
 
     @staticmethod

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import signal
 import sys
 
@@ -43,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reset", action="store_true",
         help="стереть cookies и профиль браузера аккаунта (--only) или всех, и сбросить статусы",
+    )
+    parser.add_argument(
+        "--click", metavar="SELECTOR",
+        help="в режиме --probe: кликнуть по селектору и снять второй срез кандидатов "
+             "(так достаются пункты меню, которых нет в DOM до клика)",
     )
     parser.add_argument("--check", action="store_true", help="проверить входные файлы и выйти")
     parser.add_argument("--log-level", default="INFO", help="уровень логов в консоли")
@@ -203,6 +209,39 @@ async def run_probe(args) -> int:
             print(f"  Начало текста      : {text[:160]!r}")
         if saved:
             print(f"  Скриншот и HTML    : {saved[0].parent}")
+        # кандидаты в селекторы — главное, ради чего гоняют пробу на живом сайте
+        from bot.debug import collect_page, print_candidates
+
+        folder = artifacts.dir_for(bundle.account.login, debug=True)
+        report = await collect_page(page)
+        if report:
+            print_candidates(report)
+            dump = folder / "probe_candidates.json"
+            dump.write_text(
+                json.dumps({"url": page.url, **report}, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            print(f"  Полный список: {dump}")
+
+        if args.click:
+            print(f"\n  Кликаю по '{args.click}' и снимаю второй срез…")
+            try:
+                await page.locator(args.click).first.click(timeout=10000)
+                await asyncio.sleep(1.5)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  Клик не удался: {str(exc).splitlines()[0][:160]}")
+            else:
+                after = await collect_page(page)
+                if after:
+                    print_candidates(after)
+                    dump = folder / "probe_candidates_after_click.json"
+                    dump.write_text(
+                        json.dumps({"url": page.url, "clicked": args.click, **after},
+                                   ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                    print(f"  Полный список: {dump}")
+                await artifacts.dump(page, bundle.account.login, "probe_after_click", debug=True)
+
         if len(html) < 2000:
             print("\n  HTML целиком (он подозрительно короткий):")
             print("  " + html.replace("\n", "\n  ")[:1800])
