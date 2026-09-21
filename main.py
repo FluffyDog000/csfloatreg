@@ -58,11 +58,40 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def code_version(root) -> str:
+    """Короткий идентификатор запущенного кода: ветка и последний коммит."""
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%h %s"], cwd=str(root),
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout.strip()
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(root),
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain", "config.yaml", "selectors.yaml"], cwd=str(root),
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout.strip()
+        suffix = f" | ЛОКАЛЬНО ИЗМЕНЕНЫ: {dirty.replace(chr(10), ', ')}" if dirty else ""
+        return f"{branch} @ {out}{suffix}"
+    except Exception:  # noqa: BLE001 — без git тоже должно работать
+        return "версия неизвестна (git недоступен)"
+
+
 def load_everything(args):
     cfg = Config.load(args.config).apply_cli(args)
     cfg.ensure_dirs()
     log_path = logging_setup.setup(cfg.path_for("logs"), level=args.log_level)
     selectors = load_selectors(args.selectors)
+    log = logging_setup.get_logger()
+    log.info("Код: %s", code_version(cfg.root))
+    log.info(
+        "Адреса CSFloat: профиль=%s настройки=%s",
+        cfg.get("csfloat.profile_url"), cfg.get("csfloat.settings_url"),
+    )
     return cfg, selectors, log_path
 
 

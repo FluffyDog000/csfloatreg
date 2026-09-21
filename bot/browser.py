@@ -378,6 +378,14 @@ class BrowserSession:
         skip_types = {"image", "font", "media", "stylesheet"}
         seen_failures: set[str] = set()
 
+        def on_navigated(frame) -> None:
+            # видно, кто и куда уводит страницу, включая редиректы самого сайта
+            try:
+                if frame == page.main_frame:
+                    self.log.info("[%s] переход: %s", name, frame.url[:150])
+            except Exception:  # noqa: BLE001
+                pass
+
         def on_response(response) -> None:
             # переходы бывают не только через goto: форма логина, редирект, клик
             try:
@@ -411,6 +419,7 @@ class BrowserSession:
                 pass
 
         try:
+            page.on("framenavigated", on_navigated)
             page.on("response", on_response)
             page.on("requestfailed", on_failed)
             page.on("pageerror", on_page_error)
