@@ -344,8 +344,34 @@ class OutlookWebProvider:
         """Открывает письма от CSFloat и вытаскивает из них токен или ссылку."""
         sel = self.ctx.sel
         needle = (self.cfg.get("csfloat.mail_search") or "csfloat").lower()
+        subject = self.cfg.get("csfloat.mail_subject") or "CSFloat"
 
-        for row_selector in sel("outlook.message_rows"):
+        for opener in (
+            self._rows_by_selector(needle),
+            self._rows_by_text(subject),
+            self._rows_by_text(needle),
+        ):
+            async for label, row in opener:
+                try:
+                    await row.click(timeout=8000)
+                except Exception as exc:  # noqa: BLE001
+                    self.log.debug("Не открылось письмо (%s): %s", label, exc)
+                    continue
+
+                if not await self._reading_pane_ready(helper):
+                    self.log.debug("Клик по «%s» не открыл письмо", label)
+                    continue
+
+                body = await helper.text_of(sel("outlook.message_body"), timeout=5)
+                found = extractor(await helper.html(), body, await self._anchor_hrefs())
+                if found:
+                    return found
+                self.log.debug("В письме ничего не нашлось (текста %d символов)", len(body))
+        return None
+
+    async def _rows_by_selector(self, needle: str):
+        """Строки списка по селекторам из конфига."""
+        for row_selector in self.ctx.sel("outlook.message_rows"):
             rows = self.page.locator(f"{row_selector}:has-text('{needle}')")
             try:
                 count = await rows.count()
@@ -353,25 +379,30 @@ class OutlookWebProvider:
                 continue
             if not count:
                 continue
-            self.log.debug("Писем от CSFloat в списке: %d (%s)", count, row_selector)
-
+            self.log.info("Писем от CSFloat в списке: %d (%s)", count, row_selector)
             for index in range(min(count, 5)):
-                try:
-                    await rows.nth(index).click()
-                except Exception as exc:  # noqa: BLE001
-                    self.log.debug("Не открылось письмо %d: %s", index, exc)
-                    continue
+                yield f"{row_selector}#{index}", rows.nth(index)
 
-                # ждём, пока область чтения наполнится
-                await helper.first_visible(sel("outlook.message_body"), timeout=10)
-                await helper.settle(1.5)
+    async def _rows_by_text(self, text: str):
+        """Запасной путь: клик по видимому тексту письма, без опоры на разметку."""
+        try:
+            rows = self.page.get_by_text(text, exact=False)
+            count = await rows.count()
+        except Exception:  # noqa: BLE001
+            return
+        if not count:
+            return
+        self.log.info("Нашёл по тексту «%s»: %d совпадений", text, count)
+        for index in range(min(count, 5)):
+            yield f"текст «{text}»#{index}", rows.nth(index)
 
-                body = await helper.text_of(sel("outlook.message_body"), timeout=5)
-                found = extractor(await helper.html(), body, await self._anchor_hrefs())
-                if found:
-                    return found
-                self.log.debug("В письме %d ничего не нашлось (текста %d символов)", index, len(body))
-        return None
+    async def _reading_pane_ready(self, helper: PageHelper, *, timeout: float = 10) -> bool:
+        """Письмо считается открытым, когда ушла заглушка области чтения."""
+        empty = self.ctx.sel("outlook.reading_pane_empty", required=False)
+        if empty and not await helper.wait_gone(empty, timeout=timeout):
+            return False
+        await helper.settle(1.5)
+        return True
 
     async def _anchor_hrefs(self) -> str:
         """Ссылка может жить только в href, но не в видимом тексте."""

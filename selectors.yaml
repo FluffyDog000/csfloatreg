@@ -291,8 +291,15 @@ outlook:
   message_rows:
     - "div[role='option']"
     - "div[role='listbox'] div[role='option']"
+    - "div[role='listitem']"
     - "div[data-convid]"
     - "[aria-label*='CSFloat' i]"
+    - "div[role='region'] div[tabindex]"
+  # Заглушка области чтения: пока она видна, письмо не открыто
+  reading_pane_empty:
+    - "text=Select an item to read"
+    - "text=Nothing is selected"
+    - "text=Выберите элемент для чтения"
   message_body:
     - "div[aria-label='Message body']"
     - "div[role='document']"
