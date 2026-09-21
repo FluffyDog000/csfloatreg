@@ -144,9 +144,15 @@ async def run_probe(args) -> int:
                 "cf-ray", "cf-mitigated", "cf-cache-status", "x-served-by", "location",
                 "retry-after", "set-cookie",
             )
-            for name in interesting:
-                if name in headers:
-                    print(f"  {name:<18} : {headers[name][:120]}")
+            if 200 <= response.status < 300:
+                for name in interesting:
+                    if name in headers:
+                        print(f"  {name:<18} : {headers[name][:120]}")
+            else:
+                # на ошибке важен каждый заголовок: по ним видно, кто ответил
+                print(f"  Заголовки ответа   : {len(headers)} шт.")
+                for name, value in sorted(headers.items()):
+                    print(f"    {name:<22} {value[:110]}")
         else:
             print("  HTTP-статус        : ответа не было (навигация без запроса)")
         print(f"  Заголовок          : {title or '(пусто)'}")
