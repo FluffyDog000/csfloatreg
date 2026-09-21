@@ -233,6 +233,8 @@ class BrowserSession:
             "window": self.viewport,
             "i_know_what_im_doing": True,
         }
+        if self.cfg.get("browser.executable_path"):
+            options["executable_path"] = self.cfg.get("browser.executable_path")
         locale = self.cfg.get("browser.locale")
         if locale and not options["geoip"]:
             options["locale"] = locale
@@ -271,7 +273,10 @@ class BrowserSession:
 
         self._playwright = await async_playwright().start()
         launcher = getattr(self._playwright, "chromium" if engine == "chromium" else "firefox")
-        self.browser = await launcher.launch(headless=not self.headful, proxy=proxy_cfg)
+        options = {"headless": not self.headful, "proxy": proxy_cfg}
+        if self.cfg.get("browser.executable_path"):
+            options["executable_path"] = self.cfg.get("browser.executable_path")
+        self.browser = await launcher.launch(**options)
 
     # ── контексты и страницы ─────────────────────────────────
     async def context(self, name: str = "csfloat"):

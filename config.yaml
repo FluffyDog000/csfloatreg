@@ -37,6 +37,7 @@ browser:
   timezone: null             # null = из geoip
   enable_cache: true
   disable_ublock: false      # диагностика: включи, если страница остаётся пустой
+  executable_path: null      # путь к конкретному бинарнику браузера, если нужен свой
   virtual_display: auto      # auto|true|false — Xvfb для headful на Linux без GUI
   viewports:
     - [1280, 800]

@@ -35,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--headful", action="store_true", help="видимый браузер")
     parser.add_argument("--debug", action="store_true", help="пошаговый режим (включает headful, 1 поток)")
     parser.add_argument("--force", action="store_true", help="не пропускать аккаунты со статусом done")
+    parser.add_argument(
+        "--probe", nargs="?", const="", metavar="URL",
+        help="открыть один URL в настроенном браузере и показать, что с ним не так "
+             "(по умолчанию csfloat.com); аккаунт берётся из --only или первый в списке",
+    )
     parser.add_argument("--check", action="store_true", help="проверить входные файлы и выйти")
     parser.add_argument("--log-level", default="INFO", help="уровень логов в консоли")
     parser.add_argument("--web", action="store_true", help="запустить веб-интерфейс вместо прогона")
@@ -60,6 +65,83 @@ def print_check(bundles) -> None:
         print(f"  {mark}{bundle.account.login:<24} {bundle.proxy.safe():<38} {bundle.error or ''}")
     if len(bundles) > 200:
         print(f"  … ещё {len(bundles) - 200}")
+
+
+async def run_probe(args) -> int:
+    """Диагностика одной страницы: тот же браузер, профиль и прокси, что в прогоне.
+
+    Нужна, когда сайт открывается руками, но не открывается в боте: печатает
+    упавшие запросы, JS-ошибки и то, отрисовалось ли вообще хоть что-нибудь.
+    """
+    from bot.browser import BrowserSession
+    from bot.storage import ArtifactStore, StateStore
+
+    cfg, _selectors, log_path = load_everything(args)
+    log = logging_setup.get_logger()
+    log.info("Лог пишется в %s", log_path)
+
+    url = args.probe or (cfg.get("csfloat.base_url", "https://csfloat.com").rstrip("/") + "/")
+    bundles = load_all(cfg)
+    if args.only:
+        bundles = [b for b in bundles if b.account.login.lower() == args.only.lower()]
+        if not bundles:
+            print(f"Аккаунт {args.only} не найден в accounts.txt", file=sys.stderr)
+            return 2
+    bundle = bundles[0]
+
+    account_log = logging_setup.get_logger(bundle.account.login)
+    state = StateStore(cfg.path_for("state"), cfg.path_for("profiles"))
+    artifacts = ArtifactStore(cfg.path_for("errors"), cfg.path_for("debug_dumps"))
+    session = BrowserSession(
+        bundle.account.login, bundle.proxy, cfg, state, account_log,
+        headful=True if args.headful or args.debug else cfg.get("run.headful", False),
+    )
+
+    try:
+        await session.start()
+        page = await session.page("csfloat")
+        account_log.info("Открываю %s", url)
+        await page.goto(url, wait_until="domcontentloaded", timeout=cfg.get("timeouts.page_load_ms", 60000))
+
+        rendered = True
+        try:
+            await page.wait_for_function(
+                "() => document.body && document.body.innerText.trim().length > 0",
+                timeout=float(cfg.get("csfloat.render_timeout_s", 25)) * 1000,
+            )
+        except Exception:  # noqa: BLE001
+            rendered = False
+
+        html = await page.content()
+        text = await page.evaluate("() => (document.body ? document.body.innerText : '').trim()")
+        title = await page.title()
+        saved = await artifacts.dump(page, bundle.account.login, "probe", debug=True, note=f"проба {url}")
+
+        print("\n" + "─" * 64)
+        print(f"  URL после загрузки : {page.url}")
+        print(f"  Заголовок          : {title or '(пусто)'}")
+        print(f"  HTML               : {len(html)} символов")
+        print(f"  Видимый текст      : {len(text)} символов")
+        print(f"  Отрисовалось       : {'да' if rendered else 'НЕТ — страница пустая'}")
+        if text:
+            print(f"  Начало текста      : {text[:160]!r}")
+        if saved:
+            print(f"  Скриншот и HTML    : {saved[0].parent}")
+        print("─" * 64)
+        if not rendered:
+            print(
+                "\n  Страница пустая. Смотри выше строки 'запрос не прошёл' и 'JS-ошибка'.\n"
+                "  Быстрые проверки в config.yaml, по одной за раз:\n"
+                "    browser.disable_ublock: true     # мешает встроенный блокировщик\n"
+                "    browser.block_images: false      # мешает блокировка картинок\n"
+                "    browser.humanize: false\n"
+                "    browser.geoip: false             # мешает подмена локали/таймзоны\n"
+            )
+        if args.debug:
+            await asyncio.to_thread(input, "  Enter — закрыть браузер: ")
+        return 0
+    finally:
+        await session.close()
 
 
 async def run_cli(args) -> int:
@@ -117,6 +199,8 @@ def main() -> int:
     try:
         if args.web:
             return run_web(args)
+        if args.probe is not None:
+            return asyncio.run(run_probe(args))
         return asyncio.run(run_cli(args))
     except (ConfigError, LoaderError) as exc:
         print(f"\nОшибка входных данных: {exc}\n", file=sys.stderr)
