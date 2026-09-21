@@ -274,6 +274,12 @@ async def run_probe(args) -> int:
             except Exception as exc:  # noqa: BLE001
                 print(f"  Клик не удался: {str(exc).splitlines()[0][:160]}")
             else:
+                text_after = await page.evaluate("() => (document.body ? document.body.innerText : '').trim()")
+                print(f"  После клика: URL {page.url[:90]}")
+                print(f"  Видимого текста: {len(text_after)} символов (было {len(text)})")
+                for marker in ("Select an item to read", "Nothing is selected", "Выберите элемент"):
+                    if marker in text_after:
+                        print(f"  Область чтения всё ещё пуста: «{marker}»")
                 after = await collect_page(page)
                 if after:
                     print_candidates(after)
