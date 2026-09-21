@@ -38,6 +38,9 @@ browser:
   enable_cache: true
   disable_ublock: false      # диагностика: включи, если страница остаётся пустой
   executable_path: null      # путь к конкретному бинарнику браузера, если нужен свой
+  firefox_prefs: {}          # диагностика сети через прокси, напр.:
+                             #   network.http.http3.enable: false
+                             #   network.http.spdy.enabled: false   (отключить HTTP/2)
   virtual_display: auto      # auto|true|false — Xvfb для headful на Linux без GUI
   viewports:
     - [1280, 800]

@@ -235,6 +235,11 @@ class BrowserSession:
         }
         if self.cfg.get("browser.executable_path"):
             options["executable_path"] = self.cfg.get("browser.executable_path")
+        prefs = self.cfg.get("browser.firefox_prefs") or {}
+        if prefs:
+            options["firefox_user_prefs"] = dict(prefs)
+            self.log.debug("Настройки Firefox: %s", ", ".join(prefs))
+
         locale = self.cfg.get("browser.locale")
         if locale and not options["geoip"]:
             options["locale"] = locale
@@ -276,6 +281,8 @@ class BrowserSession:
         options = {"headless": not self.headful, "proxy": proxy_cfg}
         if self.cfg.get("browser.executable_path"):
             options["executable_path"] = self.cfg.get("browser.executable_path")
+        if engine != "chromium" and self.cfg.get("browser.firefox_prefs"):
+            options["firefox_user_prefs"] = dict(self.cfg.get("browser.firefox_prefs"))
         self.browser = await launcher.launch(**options)
 
     # ── контексты и страницы ─────────────────────────────────
