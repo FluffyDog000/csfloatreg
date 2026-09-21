@@ -22,6 +22,8 @@ class SteamLoginPage(PageHelper):
         sel = self.ctx.sel
         await self.check_captcha("steam_login")
 
+        await self._ensure_credentials_form()
+
         self.log.info("Ввожу учётные данные Steam")
         await self.fill(sel("steam.username"), account.login, "поле логина Steam")
         await self.fill(sel("steam.password"), account.password, "поле пароля Steam")
@@ -42,6 +44,8 @@ class SteamLoginPage(PageHelper):
             },
             timeout=60,
         )
+        if state == "mobile_confirm":
+            state = await self._switch_to_code_entry()
         await self._raise_on_bad_state(state)
 
         if state == "success":
@@ -49,6 +53,46 @@ class SteamLoginPage(PageHelper):
             return
 
         await self._enter_guard_code(mafile, steam_time, success_markers)
+
+    async def _ensure_credentials_form(self) -> None:
+        """Новый логин Steam открывается на вкладке QR-кода: формы с логином там нет."""
+        sel = self.ctx.sel
+        if await self.first_visible(sel("steam.username"), timeout=5) is not None:
+            return
+        self.log.info("Форма логина не видна — переключаюсь с QR-кода на ввод логина")
+        await self.click(
+            sel("steam.use_password_login", required=False),
+            "переключатель на вход по логину",
+            optional=True,
+        )
+        await self.settle(1.2)
+
+    async def _switch_to_code_entry(self) -> str:
+        """«Подтвердите вход в приложении» -> «ввести код вместо этого».
+
+        У аккаунта с maFile это штатный экран, а не тупик: Steam прячет ввод кода
+        за ссылкой. Фатальный статус оставляем только если ссылки действительно нет.
+        """
+        sel = self.ctx.sel
+        self.log.info("Steam предлагает подтверждение в приложении — ищу переход на ввод кода")
+        link = await self.first_visible(sel("steam.use_code_instead", required=False), timeout=6)
+        if link is None:
+            raise SteamMobileConfirmRequired(
+                "Steam требует подтверждение в мобильном приложении, перехода на ввод кода нет"
+            )
+        try:
+            await link.click()
+        except Exception as exc:  # noqa: BLE001
+            raise self.classify(exc, "клик по переходу на ввод кода") from exc
+        await self.settle(1.5)
+
+        if await self.first_visible(sel("steam.guard_boxes"), timeout=8) is not None:
+            return "guard_boxes"
+        if await self.first_visible(sel("steam.guard_single"), timeout=3) is not None:
+            return "guard_single"
+        raise SteamMobileConfirmRequired(
+            "переключился на ввод кода, но поле кода так и не появилось"
+        )
 
     # ── Steam Guard ──────────────────────────────────────────
     async def _enter_guard_code(self, mafile, steam_time, success_markers: list[str]) -> None:

@@ -19,6 +19,22 @@ steam:
     - "button[type='submit']"
     - "button:has-text('Sign in')"
     - "button:has-text('Войти')"
+  # Новый логин Steam открывается на вкладке QR-кода — переключатель на форму
+  use_password_login:
+    - "button:has-text('Sign in with account name')"
+    - "a:has-text('Sign in with account name')"
+    - "button:has-text('Войти, указав имя аккаунта')"
+    - "text=Sign in with account name"
+    - "[class*='SignInWithPassword'] button"
+  # Ссылка «ввести код вместо подтверждения в приложении»
+  use_code_instead:
+    - "button:has-text('Enter a code instead')"
+    - "a:has-text('Enter a code instead')"
+    - "button:has-text('Use a Steam Guard code')"
+    - "a:has-text('Use a Steam Guard code')"
+    - "button:has-text('Ввести код')"
+    - "a:has-text('Ввести код')"
+    - "text=Enter a code instead"
   # Новый логин Steam: 5 отдельных полей по одному символу
   guard_boxes:
     - "input[maxlength='1']"
