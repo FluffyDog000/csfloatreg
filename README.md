@@ -68,6 +68,16 @@ python -m camoufox fetch          # ~150 МБ, один раз: сборка Fir
 python main.py --check
 ```
 
+## Личные настройки
+
+`config.yaml` лежит в репозитории, поэтому правки в нём конфликтуют с `git pull`.
+Всё своё клади в `config.local.yaml` — он в `.gitignore`, перекрывает `config.yaml`
+по тем ключам, которые в нём указаны, и остальное берёт из основного файла:
+
+```bash
+cp config.local.example.yaml config.local.yaml
+```
+
 ## Запуск
 
 ```bash

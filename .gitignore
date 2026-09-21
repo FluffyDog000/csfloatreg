@@ -4,6 +4,9 @@ proxies.txt
 mafiles/
 *.maFile
 
+# Личные настройки поверх config.yaml
+config.local.yaml
+
 # Рантайм
 state/
 profiles/

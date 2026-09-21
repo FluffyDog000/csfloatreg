@@ -77,6 +77,16 @@ class Config:
             data = yaml.safe_load(fh) or {}
         if not isinstance(data, dict):
             raise ConfigError(f"{p}: ожидался YAML-словарь")
+
+        # config.local.yaml перекрывает config.yaml и не лежит в репозитории:
+        # так личные правки переживают git pull и ничего не конфликтует
+        local = p.with_name(p.stem + ".local" + p.suffix)
+        if local.exists():
+            with local.open("r", encoding="utf-8") as fh:
+                overrides = yaml.safe_load(fh) or {}
+            if not isinstance(overrides, dict):
+                raise ConfigError(f"{local}: ожидался YAML-словарь")
+            data = _deep_merge(data, overrides)
         return cls(data, path=p, root=root)
 
     def apply_cli(self, args) -> "Config":

@@ -304,6 +304,17 @@ class CsFloatPage(PageHelper):
         await self.goto(self.settings_url)
         await self.wait_rendered(timeout=self.cfg.get("csfloat.render_timeout_s", 25))
         await self.settle(1.5)
+
+        if "/404" in self.page.url or "not-found" in self.page.url:
+            # не верим конфигу на слово: страница могла переехать или её не было вовсе
+            self.log.warning(
+                "Адрес настроек %s отдаёт 404 — дальше работаю с профилем. "
+                "Убери csfloat.settings_url из config.yaml, чтобы не ходить сюда.",
+                self.settings_url,
+            )
+            self.settings_url = None
+            await self.open_profile()
+            return
         self.log.info("Настройки открыты, адрес: %s", self.page.url)
         await self.check_captcha("csfloat_settings")
 
