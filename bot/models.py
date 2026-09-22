@@ -5,25 +5,8 @@ import dataclasses
 from pathlib import Path
 
 
-class Status:
-    NEW = "new"
-    IN_PROGRESS = "in_progress"
-    DONE = "done"
-    ERROR = "error"
-    SKIPPED = "skipped"
-    # остальные статусы приходят из errors.*.status
-
-
-#: Статусы, при которых повторять аккаунт бессмысленно без ручного вмешательства.
-TERMINAL = {
-    "done",
-    "bad_credentials",
-    "steam_locked",
-    "no_mafile",
-    "mail_bad_credentials",
-    "mail_blocked",
-    "not_implemented",
-}
+#: Пометки аккаунта, которые ставит человек в интерфейсе.
+STATUSES = ("new", "in_work", "done", "bad")
 
 
 @dataclasses.dataclass(slots=True)
@@ -46,6 +29,7 @@ class Proxy:
     username: str | None = None
     password: str | None = dataclasses.field(default=None, repr=False)
     raw_line_no: int = 0
+    raw: str = dataclasses.field(default="", repr=False)   # строка из proxies.txt = ключ в пуле
 
     @property
     def needs_socks_relay(self) -> bool:
@@ -81,11 +65,3 @@ class MaFile:
     path: Path | None = None
 
 
-@dataclasses.dataclass(slots=True)
-class Bundle:
-    """Аккаунт + его прокси + его maFile. Единица работы очереди."""
-
-    account: Account
-    proxy: Proxy
-    mafile: MaFile | None = None
-    error: str | None = None  # причина, если связать не удалось (нет maFile)

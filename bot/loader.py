@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .errors import LoaderError
 from .logging_setup import register_secret
-from .models import Account, Bundle, MaFile, Proxy
+from .models import Account, MaFile, Proxy
 
 _KNOWN_SCHEMES = ("http", "https", "socks5", "socks5h", "socks4")
 
@@ -92,14 +92,19 @@ def parse_proxy(line: str, *, default_scheme: str = "http", line_no: int = 0) ->
         raise LoaderError(f"строка {line_no}: некорректный порт '{port_raw}' в '{line}'")
 
     register_secret(password)
-    return Proxy(scheme, host, int(port_raw), user or None, password, line_no)
+    return Proxy(scheme, host, int(port_raw), user or None, password, line_no, raw=line.strip())
 
 
 def load_proxies(path: Path, *, default_scheme: str = "http") -> list[Proxy]:
-    proxies = [
-        parse_proxy(line, default_scheme=default_scheme, line_no=no)
-        for no, line in _clean_lines(path)
-    ]
+    """Пул прокси. Порядок строк больше ничего не значит: привязка хранится отдельно."""
+    proxies: list[Proxy] = []
+    seen: set[str] = set()
+    for no, line in _clean_lines(path):
+        proxy = parse_proxy(line, default_scheme=default_scheme, line_no=no)
+        if proxy.raw in seen:
+            continue      # дубликаты в пуле только мешают
+        seen.add(proxy.raw)
+        proxies.append(proxy)
     if not proxies:
         raise LoaderError(f"{path}: не найдено ни одного прокси")
     return proxies
@@ -154,36 +159,3 @@ def load_mafiles(directory: Path) -> dict[str, MaFile]:
         register_secret(mafile.shared_secret, mafile.identity_secret)
         index[mafile.account_name.lower()] = mafile
     return index
-
-
-# ── связывание ───────────────────────────────────────────────
-def build_bundles(
-    accounts: list[Account], proxies: list[Proxy], mafiles: dict[str, MaFile]
-) -> list[Bundle]:
-    """1 прокси = 1 аккаунт, привязка по порядку строк."""
-    if len(proxies) < len(accounts):
-        raise LoaderError(
-            f"Прокси меньше, чем аккаунтов: {len(proxies)} < {len(accounts)}. "
-            f"Правило '1 прокси = 1 аккаунт' нарушено — добавьте "
-            f"{len(accounts) - len(proxies)} строк в proxies.txt."
-        )
-
-    bundles: list[Bundle] = []
-    for account, proxy in zip(accounts, proxies):
-        mafile = mafiles.get(account.login.lower())
-        error = None
-        if mafile is None:
-            error = f"maFile с account_name='{account.login}' не найден"
-        elif not mafile.shared_secret:
-            error = f"maFile {mafile.path.name if mafile.path else '?'} зашифрован (нет shared_secret)"
-        bundles.append(Bundle(account=account, proxy=proxy, mafile=mafile, error=error))
-    return bundles
-
-
-def load_all(cfg) -> list[Bundle]:
-    accounts = load_accounts(cfg.path_for("accounts"))
-    proxies = load_proxies(
-        cfg.path_for("proxies"), default_scheme=cfg.get("proxy.default_scheme", "http")
-    )
-    mafiles = load_mafiles(cfg.path_for("mafiles"))
-    return build_bundles(accounts, proxies, mafiles)

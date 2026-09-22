@@ -1,16 +1,11 @@
 # Личные настройки поверх config.yaml. Скопируй в config.local.yaml —
-# этот файл не в репозитории, поэтому git pull его не тронет и не создаст конфликтов.
-# Пишутся только те ключи, которые нужно поменять, остальное берётся из config.yaml.
+# этот файл не в репозитории, git pull его не тронет.
 
 # browser:
+#   start_url: https://steamcommunity.com
+#   block_images: true
 #   firefox_prefs:
-#     network.dns.echconfig.enabled: false
 #     network.http.http3.enable: false
-#     network.http.altsvc.enabled: false
-#     network.http.spdy.enabled: false
 
-# run:
-#   threads: 5
-
-# csfloat:
-#   profile_url: https://csfloat.com/profile
+# web:
+#   port: 8080
