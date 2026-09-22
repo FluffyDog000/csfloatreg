@@ -62,6 +62,7 @@ class MaFile:
     shared_secret: str = dataclasses.field(repr=False)
     identity_secret: str = dataclasses.field(default="", repr=False)
     steam_id: str = ""
+    device_id: str = ""
     path: Path | None = None
 
 

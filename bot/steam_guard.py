@@ -47,6 +47,21 @@ def seconds_until_next_code(timestamp: float | None = None) -> float:
     return _INTERVAL - (ts % _INTERVAL)
 
 
+def confirmation_key(identity_secret: str, tag: str, timestamp: float) -> str:
+    """Ключ для мобильных подтверждений: тот же HMAC, но с identity_secret и тегом."""
+    if not identity_secret:
+        raise ValueError("пустой identity_secret")
+    buf = struct.pack(">Q", int(timestamp)) + tag.encode()
+    digest = hmac.new(base64.b64decode(identity_secret), buf, hashlib.sha1).digest()
+    return base64.b64encode(digest).decode()
+
+
+def device_id(steam_id: str) -> str:
+    """Идентификатор устройства, как его считает SDA, если его нет в maFile."""
+    digest = hashlib.sha1(str(steam_id).encode()).hexdigest()
+    return "android:" + "-".join([digest[:8], digest[8:12], digest[12:16], digest[16:20], digest[20:32]])
+
+
 class SteamTime:
     """Хранит смещение локальных часов относительно серверов Steam.
 
@@ -94,6 +109,10 @@ class SteamTime:
 
     def code(self, shared_secret: str) -> str:
         return generate_code(shared_secret, self.now())
+
+    def confirmation_key(self, identity_secret: str, tag: str) -> tuple[str, int]:
+        moment = int(self.now())
+        return confirmation_key(identity_secret, tag, moment), moment
 
     def fresh_code(self, shared_secret: str, *, min_lifetime: float = 5.0) -> tuple[str, float]:
         """Код и сколько секунд он ещё проживёт.

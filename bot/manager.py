@@ -12,6 +12,9 @@ from pathlib import Path
 
 from .bindings import BindingStore
 from .browser import BrowserSession
+from .confirmations import Confirmation, ConfirmationError
+from .confirmations import fetch as fetch_confirmations
+from .confirmations import respond as respond_confirmations
 from .loader import load_accounts, load_mafiles, load_proxies
 from .logging_setup import get_logger
 from .models import Account, MaFile, Proxy
@@ -44,6 +47,7 @@ class ProfileManager:
 
         self.sessions: dict[str, BrowserSession] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._confs: dict[str, dict[str, Confirmation]] = {}   # последний список подтверждений
         self.reload_inputs()
 
     # ── входные данные ───────────────────────────────────────
@@ -147,6 +151,7 @@ class ProfileManager:
                     "has_mafile": bool(self.mafiles.get(login.lower(), MaFile("", "")).shared_secret),
                     "status": entry.get("status", "new"),
                     "note": entry.get("note", ""),
+                    "trade_url": entry.get("trade_url", ""),
                     "opened": login in self.sessions,
                     "profile_exists": (self.cfg.path_for("profiles") / login).exists(),
                 }
@@ -170,14 +175,66 @@ class ProfileManager:
             "proxy_raw": self.bindings.proxy_of(login),
             "status": entry.get("status", "new"),
             "note": entry.get("note", ""),
+            "trade_url": entry.get("trade_url", ""),
             "steam_id": mafile.steam_id if mafile else "",
             "has_mafile": bool(mafile and mafile.shared_secret),
+            "can_confirm": bool(mafile and mafile.identity_secret and mafile.steam_id),
             "opened": login in self.sessions,
             "guard": self.guard(login),
         }
 
     def set_status(self, login: str, status: str, note: str = "") -> None:
         self.bindings.set_status(login, status, note)
+
+    def set_trade_url(self, login: str, url: str) -> str:
+        """Трейд-ссылку вбивает человек, наше дело — проверить и запомнить."""
+        if login not in self.accounts:
+            raise KeyError(login)
+        url = (url or "").strip()
+        if url and "tradeoffer/new" not in url:
+            raise ValueError("это не похоже на трейд-ссылку: в ней должно быть tradeoffer/new")
+        self.bindings.set_field(login, "trade_url", url)
+        self.log.info("[%s] трейд-ссылка %s", login, "сохранена" if url else "очищена")
+        return url
+
+    # ── подтверждения Steam (как в SDA) ──────────────────────
+    async def _mobile(self, login: str):
+        """Запросы к mobileconf идут через cookies открытого профиля."""
+        session = self.sessions.get(login)
+        if session is None:
+            raise ConfirmationError("открой профиль: подтверждения берутся из его сессии Steam")
+        mafile = self.mafiles.get(login.lower())
+        if mafile is None:
+            raise ConfirmationError("нет maFile для этого аккаунта")
+        context = await session.context("main")
+        return context.request, mafile
+
+    async def confirmations(self, login: str) -> list[dict]:
+        request, mafile = await self._mobile(login)
+        timeout = int(self.cfg.get("timeouts.action_ms", 20000))
+        items = await fetch_confirmations(request, mafile, self.steam_time, timeout_ms=timeout)
+        self._confs[login] = {item.id: item for item in items}
+        self.log.info("[%s] подтверждений: %d", login, len(items))
+        return [item.as_dict() for item in items]
+
+    async def respond_confirmation(self, login: str, ids: list[str], *, accept: bool) -> dict:
+        request, mafile = await self._mobile(login)
+        known = self._confs.get(login) or {}
+        if any(cid not in known for cid in ids):
+            await self.confirmations(login)          # список устарел — перечитаем
+            known = self._confs.get(login) or {}
+        items = [known[cid] for cid in ids if cid in known]
+        if not items:
+            raise ConfirmationError("этих подтверждений больше нет — обнови список")
+
+        timeout = int(self.cfg.get("timeouts.action_ms", 20000))
+        result = await respond_confirmations(
+            request, mafile, self.steam_time, items, accept=accept, timeout_ms=timeout
+        )
+        for item in items:
+            known.pop(item.id, None)
+        self.log.info("[%s] %s подтверждений: %d", login, "принято" if accept else "отклонено", len(items))
+        return result
 
     # ── профили ──────────────────────────────────────────────
     def _lock(self, login: str) -> asyncio.Lock:
@@ -230,6 +287,7 @@ class ProfileManager:
     async def close_profile(self, login: str) -> dict:
         async with self._lock(login):
             session = self.sessions.pop(login, None)
+            self._confs.pop(login, None)
             if session is None:
                 return {"closed": False}
             await session.close()

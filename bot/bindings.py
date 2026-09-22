@@ -46,9 +46,11 @@ class BindingStore:
 
     # ── аккаунты ─────────────────────────────────────────────
     def entry(self, login: str) -> dict:
-        return self.data["accounts"].setdefault(
-            login, {"proxy": None, "status": "new", "note": "", "history": []}
+        entry = self.data["accounts"].setdefault(
+            login, {"proxy": None, "status": "new", "note": "", "trade_url": "", "history": []}
         )
+        entry.setdefault("trade_url", "")     # для записей, сделанных до появления поля
+        return entry
 
     def proxy_of(self, login: str) -> str | None:
         return self.entry(login).get("proxy")
@@ -64,6 +66,11 @@ class BindingStore:
         entry["status"] = status
         if note:
             entry["note"] = note
+        self.save()
+
+    def set_field(self, login: str, name: str, value: str) -> None:
+        """Произвольное поле аккаунта: трейд-ссылка, заметка и всё, что добавится."""
+        self.entry(login)[name] = value
         self.save()
 
     def used_proxies(self) -> set[str]:

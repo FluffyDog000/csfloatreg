@@ -70,11 +70,12 @@ def run_check(cfg) -> int:
     rows = manager.rows()
     print(f"\nАккаунтов: {len(rows)}   maFile есть: {sum(1 for r in rows if r['has_mafile'])}")
     print(f"Прокси в пуле: {pool['total']}   занято: {pool['used']}   свободно: {pool['free']}   плохих: {pool['bad']}")
-    print(f"\n{'логин':<24} {'прокси':<42} maFile  статус")
+    print(f"\n{'логин':<24} {'прокси':<42} maFile  трейд  статус")
     for row in rows[:200]:
         print(
             f"  {row['login']:<22} {(row['proxy'] or '—'):<42} "
-            f"{'✓' if row['has_mafile'] else '—':<7} {row['status']}"
+            f"{'✓' if row['has_mafile'] else '—':<7} "
+            f"{'✓' if row.get('trade_url') else '—':<6} {row['status']}"
         )
     if len(rows) > 200:
         print(f"  … ещё {len(rows) - 200}")

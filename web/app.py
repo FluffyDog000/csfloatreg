@@ -17,6 +17,7 @@ from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from bot import logging_setup
+from bot.confirmations import ConfirmationError
 from bot.events import HubLogHandler, hub
 from bot.manager import ProfileManager
 from bot.steam_guard import SteamTime
@@ -37,6 +38,7 @@ def create_app(cfg) -> FastAPI:
         await manager.close_all()
 
     app = FastAPI(title="Профили", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app.state.manager = manager          # чтобы до менеджера можно было добраться снаружи
     logging_setup.add_handler(HubLogHandler(hub, level=logging.INFO))
 
     @app.middleware("http")
@@ -85,6 +87,37 @@ def create_app(cfg) -> FastAPI:
     async def api_status(login: str, payload: dict = Body(default={})):
         manager.set_status(login, payload.get("status", "new"), payload.get("note", ""))
         return {"ok": True}
+
+    @app.post("/api/trade-url/{login}")
+    async def api_trade_url(login: str, payload: dict = Body(default={})):
+        try:
+            return {"trade_url": manager.set_trade_url(login, payload.get("trade_url", ""))}
+        except KeyError:
+            raise HTTPException(404, "аккаунт не найден") from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    # ── подтверждения Steam (как в SDA) ──────────────────────
+    @app.get("/api/confirmations/{login}")
+    async def api_confirmations(login: str):
+        try:
+            return {"items": await manager.confirmations(login)}
+        except ConfirmationError as exc:
+            raise HTTPException(400, str(exc)) from None
+        except Exception as exc:  # noqa: BLE001 — текст ошибки нужен в интерфейсе
+            raise HTTPException(400, f"не удалось получить подтверждения: {exc}") from None
+
+    @app.post("/api/confirmations/{login}")
+    async def api_confirm(login: str, payload: dict = Body(default={})):
+        ids = [str(i) for i in (payload.get("ids") or []) if str(i)]
+        if not ids:
+            raise HTTPException(400, "не переданы id подтверждений")
+        try:
+            return await manager.respond_confirmation(login, ids, accept=bool(payload.get("accept", True)))
+        except ConfirmationError as exc:
+            raise HTTPException(400, str(exc)) from None
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(400, f"не удалось ответить на подтверждение: {exc}") from None
 
     # ── профили ──────────────────────────────────────────────
     @app.post("/api/open/{login}")

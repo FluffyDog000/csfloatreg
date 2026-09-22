@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Профили</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%234f8cff'/%3E%3Ccircle cx='8' cy='6' r='2.6' fill='%230f1115'/%3E%3Cpath d='M3 14c0-2.6 2.2-4.2 5-4.2s5 1.6 5 4.2z' fill='%230f1115'/%3E%3C/svg%3E">
 <style>
   :root{
     --bg:#0f1115; --panel:#161a21; --panel-2:#1c2129; --line:#252b35;
@@ -78,6 +79,12 @@
   .field .val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .field button{padding:3px 9px;font-size:11px}
 
+  .conf{background:#0d1016;border:1px solid var(--line);border-radius:8px;
+        padding:9px 11px;margin-bottom:8px;font-size:12.5px}
+  .conf .muted{font-size:12px}
+  .conf img{width:28px;height:28px;border-radius:5px;object-fit:cover;flex:none}
+  .err-text{color:#ff9c9c;font-size:12px}
+
   #log{height:170px;overflow:auto;background:#0b0e13;padding:9px 12px;
        font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.5}
   #log div{white-space:pre-wrap;word-break:break-word}
@@ -116,7 +123,7 @@
         <table>
           <thead><tr>
             <th style="width:26px"></th><th>Логин</th><th>Прокси</th><th>Почта</th>
-            <th>maFile</th><th>Статус</th>
+            <th>maFile</th><th>Трейд</th><th>Статус</th>
           </tr></thead>
           <tbody id="rows"></tbody>
         </table>
@@ -190,6 +197,9 @@ function render() {
 
     tr.appendChild(el('td','mono muted',a.mail||'—'));
     tr.appendChild(el('td', a.has_mafile?'':'muted', a.has_mafile?'✓':'—'));
+    const tdT=el('td', a.trade_url?'':'muted', a.trade_url?'✓':'—');
+    if(a.trade_url) tdT.title=a.trade_url;
+    tr.appendChild(tdT);
     const tdS=el('td'); tdS.appendChild(el('span','badge '+(BADGE[a.status]||'b-new'),STATUS_RU[a.status]||a.status));
     tr.appendChild(tdS);
     tb.appendChild(tr);
@@ -233,6 +243,28 @@ async function select(login) {
   if(card.steam_id) f.appendChild(field('SteamID',card.steam_id));
   b.appendChild(f);
 
+  // трейд-ссылку вбивает человек, хранится в data/bindings.json и переживает перезапуск
+  const tw=el('div'); tw.style.marginTop='12px';
+  const tl=el('div','muted','Трейд-ссылка'); tl.style.fontSize='12px'; tw.appendChild(tl);
+  const tin=el('input'); tin.type='text'; tin.className='mono';
+  tin.style.width='100%'; tin.style.marginTop='6px'; tin.style.fontSize='11.5px';
+  tin.placeholder='https://steamcommunity.com/tradeoffer/new/?partner=…&token=…';
+  tin.value=card.trade_url||'';
+  const tsave=el('button','primary','Сохранить');
+  tsave.onclick=async()=>{
+    try{const r=await api('/api/trade-url/'+encodeURIComponent(login),
+        {method:'POST',body:JSON.stringify({trade_url:tin.value})});
+      tin.value=r.trade_url; toast('Трейд-ссылка сохранена'); await refresh();}
+    catch(e){toast(e.message,true);}};
+  tin.onkeydown=ev=>{ if(ev.key==='Enter') tsave.click(); };
+  const tcopy=el('button','ghost','копировать');
+  tcopy.onclick=()=>tin.value?copy(tin.value,'Трейд-ссылка'):toast('ссылка пустая',true);
+  const trow=el('div','row'); trow.style.marginTop='6px';
+  tsave.style.padding='4px 12px'; tsave.style.fontSize='12px';
+  tcopy.style.padding='4px 10px'; tcopy.style.fontSize='12px';
+  trow.appendChild(tsave); trow.appendChild(tcopy);
+  tw.appendChild(tin); tw.appendChild(trow); b.appendChild(tw);
+
   const acts=el('div','row'); acts.style.marginTop='14px';
   const open=el('button','primary',card.opened?'Профиль открыт':'Открыть профиль');
   open.disabled=card.opened;
@@ -264,12 +296,86 @@ async function select(login) {
   });
   b.appendChild(st);
 
+  // подтверждения Steam — то же, что делает SDA, но через сессию открытого профиля
+  const cw=el('div'); cw.style.marginTop='16px';
+  const chead=el('div','row');
+  const ctitle=el('div','muted','Подтверждения Steam'); ctitle.style.fontSize='12px';
+  chead.appendChild(ctitle); chead.appendChild(el('div','spacer'));
+  const cbox=el('div'); cbox.style.marginTop='8px';
+  const cbtn=el('button','ghost','Обновить'); cbtn.style.padding='3px 9px'; cbtn.style.fontSize='11px';
+  cbtn.onclick=()=>loadConfs(login,cbox);
+  chead.appendChild(cbtn);
+  cw.appendChild(chead); cw.appendChild(cbox); b.appendChild(cw);
+
+  if(!card.can_confirm){
+    cbtn.disabled=true;
+    cbox.appendChild(el('div','muted','в maFile нет identity_secret — подтверждения недоступны'));
+  } else if(!card.opened){
+    cbtn.disabled=true;
+    cbox.appendChild(el('div','muted','открой профиль: список берётся из его сессии Steam'));
+  } else {
+    loadConfs(login,cbox);
+  }
+
   const reset=el('button','ghost danger','Стереть профиль и cookies');
   reset.style.marginTop='12px'; reset.style.fontSize='12px';
   reset.onclick=async()=>{ if(!confirm('Стереть профиль браузера и cookies? Отпечаток сохранится.')) return;
     try{await api('/api/reset/'+encodeURIComponent(login),{method:'POST'});toast('Профиль стёрт');}
     catch(e){toast(e.message,true);} await refresh(); select(login);};
   b.appendChild(reset);
+}
+
+async function loadConfs(login, box){
+  box.innerHTML=''; box.appendChild(el('div','muted','запрашиваю Steam…'));
+  try{
+    const r=await api('/api/confirmations/'+encodeURIComponent(login));
+    renderConfs(login, box, r.items||[]);
+  }catch(e){
+    box.innerHTML=''; box.appendChild(el('div','err-text',e.message));
+  }
+}
+
+function renderConfs(login, box, items){
+  box.innerHTML='';
+  if(!items.length){ box.appendChild(el('div','muted','нет ожидающих подтверждений')); return; }
+  items.forEach(c=>{
+    const row=el('div','conf');
+    const head=el('div','row');
+    if(c.icon){ const im=document.createElement('img'); im.src=c.icon; im.alt=''; head.appendChild(im); }
+    const ttl=el('div',null,c.headline||c.type_name||'Подтверждение'); ttl.style.fontWeight='600';
+    head.appendChild(ttl);
+    row.appendChild(head);
+    (c.summary||[]).forEach(line=>row.appendChild(el('div','muted',line)));
+    const acts=el('div','row'); acts.style.marginTop='7px';
+    const ok=el('button','primary',c.accept||'Подтвердить');
+    ok.style.padding='4px 10px'; ok.style.fontSize='12px';
+    ok.onclick=()=>respondConf(login,[c.id],true,box);
+    const no=el('button','ghost danger',c.cancel||'Отклонить');
+    no.style.padding='4px 10px'; no.style.fontSize='12px';
+    no.onclick=()=>respondConf(login,[c.id],false,box);
+    acts.appendChild(ok); acts.appendChild(no); row.appendChild(acts);
+    box.appendChild(row);
+  });
+  if(items.length>1){
+    const all=el('div','row');
+    const a=el('button','primary','Принять все ('+items.length+')');
+    a.style.padding='4px 10px'; a.style.fontSize='12px';
+    a.onclick=()=>respondConf(login,items.map(c=>c.id),true,box);
+    const r=el('button','ghost danger','Отклонить все');
+    r.style.padding='4px 10px'; r.style.fontSize='12px';
+    r.onclick=()=>{ if(confirm('Отклонить все подтверждения?')) respondConf(login,items.map(c=>c.id),false,box); };
+    all.appendChild(a); all.appendChild(r); box.appendChild(all);
+  }
+}
+
+async function respondConf(login, ids, accept, box){
+  box.querySelectorAll('button').forEach(x=>x.disabled=true);
+  try{
+    await api('/api/confirmations/'+encodeURIComponent(login),
+      {method:'POST',body:JSON.stringify({ids:ids,accept:accept})});
+    toast(accept?('Подтверждено: '+ids.length):('Отклонено: '+ids.length));
+  }catch(e){ toast(e.message,true); }
+  await loadConfs(login, box);
 }
 
 function startGuard(login, codeEl, barEl, leftEl, secondsLeft) {

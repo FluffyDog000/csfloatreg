@@ -154,6 +154,7 @@ def load_mafiles(directory: Path) -> dict[str, MaFile]:
             shared_secret=str(shared),
             identity_secret=str(data.get("identity_secret") or data.get("IdentitySecret") or ""),
             steam_id=steam_id,
+            device_id=str(data.get("device_id") or data.get("DeviceID") or ""),
             path=p,
         )
         register_secret(mafile.shared_secret, mafile.identity_secret)
