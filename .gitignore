@@ -13,6 +13,7 @@ config.local.yaml
 # Рантайм
 state/
 profiles/
+data/            # привязки аккаунт-прокси: внутри строки прокси с паролями
 errors/
 logs/
 debug/
