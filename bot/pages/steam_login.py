@@ -21,20 +21,34 @@ class SteamLoginPage(PageHelper):
     async def authorize(self, account, mafile, steam_time, success_markers: list[str]) -> None:
         """Вход, учитывающий уже живую сессию Steam.
 
-        На повторном заходе Steam обычно авторизован: формы логина нет, есть
-        только кнопка подтверждения OpenID — либо редирект происходит сам.
+        Возможны три состояния: нас уже вернули авторизованными, Steam помнит
+        аккаунт и показывает только кнопку подтверждения, либо нужна полная
+        форма логина. Раньше кнопка искалась вслепую три секунды, и при живой
+        сессии бот уходил искать несуществующее поле логина.
         """
         sel = self.ctx.sel
-        for candidate in success_markers:
-            if await self.matches(candidate, timeout=300):
-                self.log.info("Steam уже авторизован, форма логина не нужна")
-                return
+        state = await self.wait_any(
+            {
+                "success": success_markers,
+                "confirm": sel("steam.openid_signin_button", required=False),
+                "credentials": sel("steam.username"),
+                "qr": sel("steam.use_password_login", required=False),
+                "bad_credentials": sel("steam.bad_credentials"),
+                "locked": sel("steam.locked"),
+                "rate_limited": sel("steam.rate_limited"),
+            },
+            timeout=30,
+        )
+        await self._raise_on_bad_state(state)
 
-        confirm = await self.first_visible(sel("steam.openid_signin_button", required=False), timeout=3)
-        if confirm is not None:
-            self.log.info("Steam уже авторизован — подтверждаю вход в OpenID")
-            await confirm.click()
-            await self.settle(2.0)
+        if state == "success":
+            self.log.info("Steam уже авторизован, подтверждение не требуется")
+            return
+
+        if state == "confirm":
+            self.log.info("Steam помнит аккаунт — подтверждаю вход")
+            await self.click(sel("steam.openid_signin_button"), "кнопку подтверждения входа")
+            await self.settle(2.5)
             return
 
         await self.perform(account, mafile, steam_time, success_markers)

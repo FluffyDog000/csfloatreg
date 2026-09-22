@@ -48,6 +48,7 @@ class SocksRelay:
         self.port: int | None = None
         self.logger = logger
         self._server: asyncio.AbstractServer | None = None
+        self._tasks: set[asyncio.Task] = set()
 
     @property
     def url(self) -> str:
@@ -61,6 +62,12 @@ class SocksRelay:
         return self.url
 
     async def stop(self) -> None:
+        # без этого Python ругается «Task was destroyed but it is pending»
+        for task in list(self._tasks):
+            task.cancel()
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+            self._tasks.clear()
         if self._server is None:
             return
         self._server.close()
@@ -70,6 +77,10 @@ class SocksRelay:
 
     # ── обработка одного соединения ──────────────────────────
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        task = asyncio.current_task()
+        if task is not None:
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
         up_writer: asyncio.StreamWriter | None = None
         try:
             # 1. Приветствие от браузера — отвечаем "без авторизации"

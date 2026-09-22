@@ -80,9 +80,16 @@ steam:
     - "url:steamcommunity\\.com/openid"
     - "url:steamcommunity\\.com/login"
     - "url:store\\.steampowered\\.com/login"
+  # Steam уже авторизован: формы нет, есть только кнопка подтверждения входа
   openid_signin_button:
     - "#imageLogin"
     - "input[type='submit'][value='Sign In']"
+    - "input[value='Sign In']"
+    - "button:has-text('Sign In')"
+    - "a:has-text('Sign In')"
+    - ".btn_green_white_innerfade"
+    - "#openidForm input[type='submit']"
+    - "form[action*='openid'] button[type='submit']"
 
 csfloat:
   # Подтверждено на реальной разметке csfloat.com (Angular Material).
