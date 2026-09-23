@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .errors import LoaderError
 from .logging_setup import register_secret
-from .models import Account, Bundle, MaFile, Proxy
+from .models import Account, Bundle, MaFile, Mailbox, Proxy
 
 _KNOWN_SCHEMES = ("http", "https", "socks5", "socks5h", "socks4")
 
@@ -27,16 +27,24 @@ def _clean_lines(path: Path) -> list[tuple[int, str]]:
 
 # ── accounts.txt ─────────────────────────────────────────────
 def load_accounts(path: Path, *, delimiter: str = ":") -> list[Account]:
+    """Строка — Steam-аккаунт.
+
+    Годится и `login:pass`, и старый формат `login:pass:mail:mailpassword`.
+    Почта из старого формата используется только при mail.source: accounts —
+    по умолчанию ящики раздаются из mails.txt и эти поля игнорируются.
+    """
     accounts: list[Account] = []
     seen: set[str] = set()
     for line_no, line in _clean_lines(path):
-        parts = line.split(delimiter)
-        if len(parts) != 4:
+        parts = [p.strip() for p in line.split(delimiter)]
+        if len(parts) not in (2, 3, 4):
             raise LoaderError(
-                f"{path.name}:{line_no}: ожидается login{delimiter}pass{delimiter}mail"
-                f"{delimiter}mailpassword, получено полей: {len(parts)}"
+                f"{path.name}:{line_no}: ожидается login{delimiter}pass "
+                f"(или login{delimiter}pass{delimiter}mail{delimiter}mailpassword), "
+                f"получено полей: {len(parts)}"
             )
-        login, password, mail, mail_password = (p.strip() for p in parts)
+        parts += [""] * (4 - len(parts))
+        login, password, mail, mail_password = parts
         if not login or not password:
             raise LoaderError(f"{path.name}:{line_no}: пустой логин или пароль")
         if login.lower() in seen:
@@ -117,6 +125,35 @@ def load_proxies(path: Path, *, default_scheme: str = "http") -> list[Proxy]:
 
 
 # ── mafiles/ ─────────────────────────────────────────────────
+# ── mails.txt ────────────────────────────────────────────────
+def parse_mailbox(line: str, *, delimiter: str = ":", line_no: int = 0) -> Mailbox:
+    """`mail:password` — формат, в котором почты продаёт firstmail."""
+    raw = line.strip()
+    parts = [p.strip() for p in raw.split(delimiter)]
+    address = parts[0]
+    if "@" not in address:
+        raise LoaderError(f"строка {line_no}: '{address}' не похож на адрес почты")
+    password = parts[1] if len(parts) > 1 else ""
+    register_secret(password)
+    return Mailbox(address=address, password=password, raw=raw, line_no=line_no)
+
+
+def load_mails(path: Path) -> list[Mailbox]:
+    """Пул почт. Порядок строк не важен: кому какая досталась — в bindings.json."""
+    boxes: list[Mailbox] = []
+    seen: set[str] = set()
+    for line_no, line in _clean_lines(path):
+        box = parse_mailbox(line, line_no=line_no)
+        key = box.address.lower()
+        if key in seen:
+            continue        # один ящик двум аккаунтам не выдашь
+        seen.add(key)
+        boxes.append(box)
+    if not boxes:
+        raise LoaderError(f"{path}: не найдено ни одной почты")
+    return boxes
+
+
 def load_mafiles(directory: Path) -> dict[str, MaFile]:
     """Индекс по account_name ВНУТРИ файла, а не по имени файла."""
     if not directory.exists():
@@ -192,10 +229,15 @@ def build_bundles(
     return bundles
 
 
-def load_all(cfg) -> list[Bundle]:
+def load_all(cfg, *, bindings=None) -> list[Bundle]:
+    """bindings передаётся, когда в процессе уже есть открытое хранилище привязок:
+    два экземпляра BindingStore затирали бы записи друг друга."""
+    from .mailbox import attach_mailboxes
+
     accounts = load_accounts(cfg.path_for("accounts"))
     proxies = load_proxies(
         cfg.path_for("proxies"), default_scheme=cfg.get("proxy.default_scheme", "http")
     )
     mafiles = load_mafiles(cfg.path_for("mafiles"))
+    attach_mailboxes(cfg, accounts, bindings=bindings)   # почта из mails.txt
     return build_bundles(accounts, proxies, mafiles)

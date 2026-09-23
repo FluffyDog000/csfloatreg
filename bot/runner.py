@@ -20,7 +20,7 @@ from .storage import ArtifactStore, ResultsStore, StateStore
 
 
 class Runner:
-    def __init__(self, cfg, selectors, bundles: list[Bundle], *, hub=None):
+    def __init__(self, cfg, selectors, bundles: list[Bundle], *, hub=None, bindings=None):
         self.cfg = cfg
         self.selectors = selectors
         self.bundles = bundles
@@ -32,7 +32,7 @@ class Runner:
         self.state = StateStore(cfg.path_for("state"), cfg.path_for("profiles"))
         self.artifacts = ArtifactStore(cfg.path_for("errors"), cfg.path_for("debug_dumps"))
         # та же память, что у менеджера профилей: статусы, трейд-ссылки, пометки
-        self.bindings = BindingStore(cfg.path_for("data") / "bindings.json")
+        self.bindings = bindings or BindingStore(cfg.path_for("data") / "bindings.json")
         self.solver = build_solver(cfg)
         self.steam_time = SteamTime(
             cfg.get("steam.time_sync_url"), enabled=bool(cfg.get("steam.time_sync", True))

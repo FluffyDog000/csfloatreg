@@ -110,7 +110,7 @@ def print_effective(cfg) -> None:
     print(f"  config.local.yaml  : {local if local and local.exists() else '(нет)'}")
     for key in ("csfloat.profile_url", "csfloat.settings_url", "browser.engine",
                 "browser.persistent_profile", "browser.firefox_prefs", "run.threads",
-                "mail.provider", "mail.firstmail.base_url"):
+                "mail.source", "mail.provider", "mail.firstmail.base_url"):
         print(f"  {key:<26} = {cfg.get(key)!r}")
     key_set = bool(cfg.get("mail.firstmail.api_key") or os.getenv("FIRSTMAIL_API_KEY"))
     print(f"  {'mail.firstmail.api_key':<26} = {'задан' if key_set else 'НЕ ЗАДАН'}")
@@ -127,20 +127,30 @@ def print_pool(cfg) -> None:
         return
     marked = sum(1 for e in accounts.values() if e.get("status") not in (None, "new"))
     trade = sum(1 for e in accounts.values() if e.get("trade_url"))
+    mails = sum(1 for e in accounts.values() if e.get("mail"))
     print(
         f"\nМенеджер профилей: аккаунтов в памяти {len(accounts)}, "
+        f"с почтой {mails}, "
         f"с пометкой {marked}, с трейд-ссылкой {trade}, "
         f"плохих прокси {len(bindings.data.get('bad_proxies') or [])}"
     )
 
 
 def print_check(bundles) -> None:
-    ok = [b for b in bundles if not b.error]
+    ok = [b for b in bundles if not b.error and b.account.mail]
     bad = [b for b in bundles if b.error]
+    no_mail = [b for b in bundles if not b.account.mail]
     print(f"\nАккаунтов: {len(bundles)}   готовы: {len(ok)}   с проблемами: {len(bad)}")
+    if no_mail:
+        print(f"Без почты: {len(no_mail)} — добавь строк в mails.txt")
+    print(f"\n     {'логин':<20} {'почта':<32} {'прокси':<34} проблема")
     for bundle in bundles[:200]:
-        mark = "OK " if not bundle.error else "!! "
-        print(f"  {mark}{bundle.account.login:<24} {bundle.proxy.safe():<38} {bundle.error or ''}")
+        mark = "OK " if not bundle.error and bundle.account.mail else "!! "
+        mail = bundle.account.mail or "ПОЧТЫ НЕТ"
+        print(
+            f"  {mark}{bundle.account.login:<20} {mail:<32} "
+            f"{bundle.proxy.safe():<34} {bundle.error or ''}"
+        )
     if len(bundles) > 200:
         print(f"  … ещё {len(bundles) - 200}")
 

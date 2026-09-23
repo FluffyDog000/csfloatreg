@@ -77,6 +77,22 @@ class Proxy:
 
 
 @dataclasses.dataclass(slots=True)
+class Mailbox:
+    """Почта из mails.txt. Пул: кому какая досталась, помнит data/bindings.json."""
+
+    address: str
+    password: str = dataclasses.field(default="", repr=False)
+    raw: str = dataclasses.field(default="", repr=False)   # строка файла = ключ в пуле
+    line_no: int = 0
+
+    def safe(self) -> str:
+        return self.address
+
+    def __str__(self) -> str:
+        return self.address
+
+
+@dataclasses.dataclass(slots=True)
 class MaFile:
     account_name: str
     shared_secret: str = dataclasses.field(repr=False)

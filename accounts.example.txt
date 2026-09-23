@@ -1,4 +1,8 @@
-# login:pass:mail:mailpassword
-# Steam-логин : Steam-пароль : почта Outlook : пароль почты
-steamuser1:SteamPass1:steamuser1@outlook.com:MailPass1
-steamuser2:SteamPass2:steamuser2@hotmail.com:MailPass2
+# Steam-аккаунты: логин и пароль, по строке на аккаунт.
+# Скопируй в accounts.txt (он в .gitignore).
+#
+# Почта здесь НЕ нужна: ящики раздаются из mails.txt (mail.source: mails_file).
+# Старый формат login:pass:mail:mailpassword тоже читается — почта из него
+# игнорируется, пока не поставишь mail.source: accounts.
+steamuser1:SteamPass1
+steamuser2:SteamPass2

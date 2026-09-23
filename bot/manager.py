@@ -15,9 +15,10 @@ from .browser import BrowserSession
 from .confirmations import Confirmation, ConfirmationError
 from .confirmations import fetch as fetch_confirmations
 from .confirmations import respond as respond_confirmations
-from .loader import load_accounts, load_mafiles, load_proxies
+from .loader import load_accounts, load_mafiles, load_mails, load_proxies
 from .logging_setup import get_logger
-from .models import Account, MaFile, Proxy
+from .mailbox import attach_mailboxes, mail_source, mail_stats, replace_mailbox
+from .models import Account, MaFile, Mailbox, Proxy
 from .steam_guard import seconds_until_next_code
 from .storage import StateStore
 
@@ -43,6 +44,7 @@ class ProfileManager:
         self.accounts: dict[str, Account] = {}
         self.mafiles: dict[str, MaFile] = {}
         self.pool: list[Proxy] = []
+        self.mails: list[Mailbox] = []
         self.load_error: str | None = None
 
         self.sessions: dict[str, BrowserSession] = {}
@@ -58,11 +60,18 @@ class ProfileManager:
                 self.cfg.path_for("proxies"), default_scheme=self.cfg.get("proxy.default_scheme", "http")
             )
             self.mafiles = load_mafiles(self.cfg.path_for("mafiles"))
+            self.mails = (
+                load_mails(self.cfg.path_for("mails")) if mail_source(self.cfg) != "accounts" else []
+            )
             self.load_error = None
         except Exception as exc:  # noqa: BLE001 — покажем текст в интерфейсе
             self.load_error = str(exc)
             return
         self.ensure_bindings()
+        attach_mailboxes(
+            self.cfg, list(self.accounts.values()),
+            bindings=self.bindings, pool=self.mails, log=self.log,
+        )
 
     def ensure_bindings(self) -> int:
         """Каждому аккаунту — свой прокси из пула. Уже выданные не трогаем."""
@@ -98,14 +107,15 @@ class ProfileManager:
         if login in self.sessions:
             raise RuntimeError("сначала закрой профиль этого аккаунта")
 
+        # сначала ищем замену: если её нет, текущий прокси должен остаться рабочим
+        free = self.bindings.free_proxy([p.raw for p in self.pool])
+        if free is None:
+            raise RuntimeError("в пуле не осталось свободных прокси")
+
         current = self.bindings.proxy_of(login)
         if current and mark_bad:
             self.bindings.mark_bad(current)
             self.bindings.remember_history(login, current, "заменён вручную")
-
-        free = self.bindings.free_proxy([p.raw for p in self.pool])
-        if free is None:
-            raise RuntimeError("в пуле не осталось свободных прокси")
         self.bindings.bind(login, free)
         proxy = self.proxy_for(login)
         self.log.info("[%s] прокси заменён на %s", login, proxy.safe() if proxy else free)
@@ -122,6 +132,24 @@ class ProfileManager:
             "bad": len(bad & raws),
             "free": len([r for r in raws if r not in used and r not in bad]),
         }
+
+    # ── почты ────────────────────────────────────────────────
+    def mail_stats(self) -> dict:
+        if not self.mails:
+            return {"total": 0, "used": 0, "bad": 0, "free": 0}
+        return mail_stats(self.bindings, self.mails)
+
+    def replace_mail(self, login: str, *, mark_bad: bool = True) -> dict:
+        """Заменить почту аккаунта. Старая уходит в плохие и больше не выдаётся."""
+        if login not in self.accounts:
+            raise KeyError(login)
+        if mail_source(self.cfg) == "accounts":
+            raise RuntimeError("почта берётся из accounts.txt (mail.source: accounts) — заменять нечего")
+        box = replace_mailbox(login, self.bindings, self.mails, mark_bad=mark_bad)
+        account = self.accounts[login]
+        account.mail, account.mail_password = box.address, box.password
+        self.log.info("[%s] почта заменена на %s", login, box.address)
+        return {"mail": box.address}
 
     # ── Steam Guard ──────────────────────────────────────────
     def guard(self, login: str) -> dict:
@@ -148,6 +176,7 @@ class ProfileManager:
                     "mail": mask_mail(account.mail),
                     "proxy": proxy.safe() if proxy else None,
                     "proxy_missing": bool(raw) and proxy is None,
+                    "mail_missing": not account.mail,
                     "has_mafile": bool(self.mafiles.get(login.lower(), MaFile("", "")).shared_secret),
                     "status": entry.get("status", "new"),
                     "note": entry.get("note", ""),
@@ -173,6 +202,7 @@ class ProfileManager:
             "mail_password": account.mail_password,
             "proxy": proxy.safe() if proxy else None,
             "proxy_raw": self.bindings.proxy_of(login),
+            "mail_from_pool": mail_source(self.cfg) != "accounts",
             "status": entry.get("status", "new"),
             "note": entry.get("note", ""),
             "trade_url": entry.get("trade_url", ""),

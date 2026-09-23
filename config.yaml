@@ -18,8 +18,9 @@ run:
     consecutive_failures: 10 # N фатальных подряд -> остановить прогон
 
 paths:
-  accounts: accounts.txt
+  accounts: accounts.txt     # login:pass (почта отсюда НЕ берётся)
   proxies: proxies.txt
+  mails: mails.txt           # mail:password — пул почт firstmail
   mafiles: mafiles
   state: state
   profiles: profiles
@@ -105,6 +106,8 @@ csfloat:
                              # :has-text() регистронезависим.
 
 mail:
+  source: mails_file         # mails_file — почты из mails.txt (по умолчанию)
+                             # accounts   — старый формат login:pass:mail:mailpassword
   provider: firstmail        # firstmail (API) | outlook_web (браузер). Реализации в bot/pages/mail/
   check_junk: true           # outlook_web: заглядывать в «Нежелательная почта»
   base_url: https://outlook.live.com/mail/0/

@@ -16,7 +16,7 @@ from pathlib import Path
 class BindingStore:
     def __init__(self, path: Path):
         self.path = path
-        self.data: dict = {"accounts": {}, "bad_proxies": []}
+        self.data: dict = {"accounts": {}, "bad_proxies": [], "bad_mails": []}
         self.load()
 
     # ── чтение и запись ──────────────────────────────────────
@@ -31,6 +31,7 @@ class BindingStore:
             self.data = {
                 "accounts": raw.get("accounts") or {},
                 "bad_proxies": list(raw.get("bad_proxies") or []),
+                "bad_mails": list(raw.get("bad_mails") or []),
             }
 
     def save(self) -> None:
@@ -47,9 +48,11 @@ class BindingStore:
     # ── аккаунты ─────────────────────────────────────────────
     def entry(self, login: str) -> dict:
         entry = self.data["accounts"].setdefault(
-            login, {"proxy": None, "status": "new", "note": "", "trade_url": "", "history": []}
+            login,
+            {"proxy": None, "mail": "", "status": "new", "note": "", "trade_url": "", "history": []},
         )
-        entry.setdefault("trade_url", "")     # для записей, сделанных до появления поля
+        for field in ("trade_url", "mail"):   # для записей, сделанных до появления поля
+            entry.setdefault(field, "")
         return entry
 
     def proxy_of(self, login: str) -> str | None:
@@ -72,6 +75,35 @@ class BindingStore:
         """Произвольное поле аккаунта: трейд-ссылка, заметка и всё, что добавится."""
         self.entry(login)[name] = value
         self.save()
+
+    # ── почтовые ящики ───────────────────────────────────────
+    def mail_of(self, login: str) -> str:
+        return self.entry(login).get("mail") or ""
+
+    def bind_mail(self, login: str, address: str) -> None:
+        entry = self.entry(login)
+        entry["mail"] = address
+        entry["mail_bound_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.save()
+
+    def used_mails(self) -> set[str]:
+        return {e["mail"].lower() for e in self.data["accounts"].values() if e.get("mail")}
+
+    def is_bad_mail(self, address: str) -> bool:
+        return address.lower() in {m.lower() for m in self.data["bad_mails"]}
+
+    def mark_bad_mail(self, address: str) -> None:
+        if address and not self.is_bad_mail(address):
+            self.data["bad_mails"].append(address)
+            self.save()
+
+    def free_mail(self, pool: list[str]) -> str | None:
+        """Первый ящик из пула, который никому не выдан и не помечен плохим."""
+        used = self.used_mails()
+        for address in pool:
+            if address.lower() not in used and not self.is_bad_mail(address):
+                return address
+        return None
 
     def used_proxies(self) -> set[str]:
         return {e["proxy"] for e in self.data["accounts"].values() if e.get("proxy")}

@@ -41,8 +41,9 @@ def mask_mail(mail: str) -> str:
 
 
 class AppState:
-    def __init__(self, cfg, selectors, selectors_path: str):
+    def __init__(self, cfg, selectors, selectors_path: str, bindings=None):
         self.cfg = cfg
+        self.bindings = bindings
         self.selectors = selectors
         self.selectors_path = selectors_path
         self.bundles: list = []
@@ -55,7 +56,7 @@ class AppState:
     # ── входные данные ───────────────────────────────────────
     def reload_inputs(self) -> None:
         try:
-            self.bundles = load_all(self.cfg)
+            self.bundles = load_all(self.cfg, bindings=self.bindings)
             self.load_error = None
         except LoaderError as exc:
             self.bundles = []
@@ -124,9 +125,10 @@ class AppState:
 def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -> FastAPI:
     if selectors is None:
         selectors = load_selectors(selectors_path)
-    state = AppState(cfg, selectors, selectors_path)
     steam_time = SteamTime(cfg.get("steam.time_sync_url"), enabled=bool(cfg.get("steam.time_sync", True)))
     manager = ProfileManager(cfg, steam_time)
+    # одно хранилище привязок на процесс: два экземпляра затирали бы записи друг друга
+    state = AppState(cfg, selectors, selectors_path, bindings=manager.bindings)
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -190,7 +192,7 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
             cfg.set("run.modules", payload["modules"])
 
         state.reload_inputs()
-        runner = Runner(cfg, state.selectors, state.bundles)
+        runner = Runner(cfg, state.selectors, state.bundles, bindings=manager.bindings)
         state.runner = runner
 
         only = payload.get("only") or None
@@ -243,7 +245,7 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     # ── файлы входных данных ─────────────────────────────────
     @app.post("/api/upload/{kind}")
     async def api_upload(kind: str, files: list[UploadFile] = File(...)):
-        if kind in ("accounts", "proxies"):
+        if kind in ("accounts", "proxies", "mails"):
             target = cfg.path_for(kind)
             content = await files[0].read()
             target.write_bytes(content)
@@ -347,6 +349,7 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
         return {
             "accounts": manager.rows(),
             "pool": manager.pool_stats(),
+            "mails": manager.mail_stats(),
             "load_error": manager.load_error,
             "engine": cfg.get("browser.engine"),
             "time_offset": round(steam_time.offset, 1),
@@ -417,6 +420,15 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     async def m_replace_proxy(login: str):
         try:
             return manager.replace_proxy(login)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/m/replace-mail/{login}")
+    async def m_replace_mail(login: str):
+        try:
+            return manager.replace_mail(login)
+        except KeyError:
+            raise HTTPException(404, "аккаунт не найден") from None
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(400, str(exc)) from None
 

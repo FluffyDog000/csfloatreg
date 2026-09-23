@@ -109,10 +109,12 @@
   <div class="logo">CSFloat <span>bot</span></div>
   <nav class="nav-tabs"><a href="/">Запуск</a><a href="/profiles" class="on">Профили</a></nav>
   <span class="chip" id="poolChip">пул: —</span>
+  <span class="chip" id="mailChip">почты: —</span>
   <span class="chip" id="engineChip">—</span>
   <div class="spacer"></div>
   <button class="file-btn ghost">accounts.txt<input type="file" data-kind="accounts" accept=".txt"></button>
   <button class="file-btn ghost">proxies.txt<input type="file" data-kind="proxies" accept=".txt"></button>
+  <button class="file-btn ghost">mails.txt<input type="file" data-kind="mails" accept=".txt"></button>
   <button class="file-btn ghost">maFiles<input type="file" data-kind="mafiles" multiple></button>
   <button id="btnReload" class="ghost" title="Перечитать файлы">⟳</button>
 </header>
@@ -183,6 +185,9 @@ let STATE={accounts:[],pool:{}}, SELECTED=null, guardTimer=null, guardLeft=0;
 function render() {
   const p=STATE.pool||{};
   $('#poolChip').innerHTML=`пул: <b>${p.total||0}</b> · свободно <b>${p.free||0}</b> · занято <b>${p.used||0}</b> · плохих <b>${p.bad||0}</b>`;
+  const m=STATE.mails||{};
+  $('#mailChip').innerHTML=`почты: <b>${m.total||0}</b> · свободно <b>${m.free||0}</b> · занято <b>${m.used||0}</b> · плохих <b>${m.bad||0}</b>`;
+  $('#mailChip').classList.toggle('hidden', !(m.total||0));
   $('#engineChip').textContent=(STATE.engine||'—')+(STATE.time_offset!==undefined?` · время Steam ${STATE.time_offset>=0?'+':''}${STATE.time_offset}s`:'');
   const err=$('#loadError');
   if(STATE.load_error){err.textContent=STATE.load_error;err.classList.remove('hidden');}else err.classList.add('hidden');
@@ -201,7 +206,9 @@ function render() {
     const sp=el('span','truncate mono muted', a.proxy||(a.proxy_missing?'строка удалена':'не выдан'));
     sp.title=a.proxy||''; tdP.appendChild(sp); tr.appendChild(tdP);
 
-    tr.appendChild(el('td','mono muted',a.mail||'—'));
+    const tdM=el('td','mono '+(a.mail_missing?'':'muted'), a.mail || 'почты нет');
+    if(a.mail_missing) tdM.style.color='#ff9c9c';
+    tr.appendChild(tdM);
     tr.appendChild(el('td', a.has_mafile?'':'muted', a.has_mafile?'✓':'—'));
     const tdT=el('td', a.trade_url?'':'muted', a.trade_url?'✓':'—');
     if(a.trade_url) tdT.title=a.trade_url;
@@ -283,6 +290,14 @@ async function select(login) {
   close.onclick=async()=>{try{await api('/api/m/close/'+encodeURIComponent(login),{method:'POST'});toast('Профиль закрыт');}
     catch(e){toast(e.message,true);} await refresh(); select(login);};
   acts.appendChild(close);
+
+  if(card.mail_from_pool){
+    const repMail=el('button',null,'Заменить почту');
+    repMail.onclick=async()=>{ if(!confirm('Текущая почта будет помечена плохой и больше не выдастся. Продолжить?')) return;
+      try{const r=await api('/api/m/replace-mail/'+encodeURIComponent(login),{method:'POST'});toast('Новая почта: '+r.mail);}
+      catch(e){toast(e.message,true);} await refresh(); select(login);};
+    acts.appendChild(repMail);
+  }
 
   const rep=el('button',null,'Заменить прокси');
   rep.onclick=async()=>{ if(!confirm('Текущий прокси будет помечен плохим и больше не выдастся. Продолжить?')) return;

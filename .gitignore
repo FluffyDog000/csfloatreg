@@ -1,6 +1,7 @@
 # Приватные входные данные — НИКОГДА не коммитить
 accounts.txt
 proxies.txt
+mails.txt
 mafiles/
 *.maFile
 
