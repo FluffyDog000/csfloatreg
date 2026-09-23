@@ -1,0 +1,350 @@
+# ─────────────────────────────────────────────────────────────
+#  Селекторы. Каждое поле — СПИСОК кандидатов, пробуются по порядку.
+#  Спец-префикс "url:" — регулярка по текущему URL вместо DOM-селектора.
+#
+#  Значения ниже — черновые догадки. Точные снимаем в режиме:
+#      python main.py --debug --headful --only <login>
+#  (клавиша d на паузе выгружает кандидатов в debug/<login>/)
+# ─────────────────────────────────────────────────────────────
+
+steam:
+  username:
+    - "input[name='username']"
+    - "form input[type='text']:visible"
+    - "input[type='text']"
+  password:
+    - "input[name='password']"
+    - "input[type='password']"
+  submit:
+    - "button[type='submit']"
+    - "button:has-text('Sign in')"
+    - "button:has-text('Войти')"
+  # Новый логин Steam открывается на вкладке QR-кода — переключатель на форму
+  use_password_login:
+    - "button:has-text('Sign in with account name')"
+    - "a:has-text('Sign in with account name')"
+    - "button:has-text('Войти, указав имя аккаунта')"
+    - "text=Sign in with account name"
+    - "[class*='SignInWithPassword'] button"
+  # Ссылка «ввести код вместо подтверждения в приложении»
+  use_code_instead:
+    - "button:has-text('Enter a code instead')"
+    - "a:has-text('Enter a code instead')"
+    - "button:has-text('Use a Steam Guard code')"
+    - "a:has-text('Use a Steam Guard code')"
+    - "button:has-text('Ввести код')"
+    - "a:has-text('Ввести код')"
+    - "text=Enter a code instead"
+  # Новый логин Steam: 5 отдельных полей по одному символу
+  guard_boxes:
+    - "input[maxlength='1']"
+  # Старый вариант: одно поле
+  guard_single:
+    - "input[name='authcode']"
+    - "#twofactorcode_entry"
+    - "input[inputmode='numeric']"
+  guard_submit:
+    - "button[type='submit']:has-text('Submit')"
+    - "#login_twofactorauth_buttonset_entercode button"
+  bad_credentials:
+    - "text=Please check your password and account name"
+    - "text=неверный пароль"
+    - "text=Incorrect account name or password"
+  rate_limited:
+    - "text=There have been too many login failures"
+    - "text=too many login failures"
+  locked:
+    - "text=account has been locked"
+    - "text=Your account has been disabled"
+  # Steam просит код с почты (у аккаунта нет мобильного аутентификатора)
+  email_code:
+    - "text=We've sent you an email"
+    - "text=code sent to the email"
+    - "text=Enter the code sent to"
+  # Steam просит подтвердить вход в мобильном приложении
+  mobile_confirm:
+    - "text=Use the Steam Mobile App to confirm"
+    - "text=Confirm your sign in"
+    - "text=Подтвердите вход в приложении"
+  # Страница приватности обменов: там лежит готовая трейд-ссылка
+  trade_url_input:
+    - "#trade_offer_access_url"
+    - "input[readonly][value*='tradeoffer']"
+    - "input[value*='partner=']"
+  trade_url_create:
+    - "#btn_create_new_trade_url"
+    - "a:has-text('Create New URL')"
+    - "button:has-text('Create New URL')"
+    - "a:has-text('Создать новый URL')"
+  openid_page:
+    - "url:steamcommunity\\.com/openid"
+    - "url:steamcommunity\\.com/login"
+    - "url:store\\.steampowered\\.com/login"
+  # Steam уже авторизован: формы нет, есть только кнопка подтверждения входа
+  openid_signin_button:
+    - "#imageLogin"
+    - "input[type='submit'][value='Sign In']"
+    - "input[value='Sign In']"
+    - "button:has-text('Sign In')"
+    - "a:has-text('Sign In')"
+    - ".btn_green_white_innerfade"
+    - "#openidForm input[type='submit']"
+    - "form[action*='openid'] button[type='submit']"
+
+csfloat:
+  # Подтверждено на реальной разметке csfloat.com (Angular Material).
+  # Аватарка — картинка ВНУТРИ кнопки-триггера меню; при block_images она
+  # схлопывается до размера битой иконки, поэтому ловим саму кнопку.
+  logged_in:
+    - "button.mat-mdc-menu-trigger.user"
+    - ".balance-text"
+    - "img.avatar"
+    - "url:csfloat\\.com/profile"
+  sign_in_button:
+    - ".toolbar .login"
+    - "a.login"
+    - "button.login"
+    - "a[href*='steam']:has-text('Sign')"
+    - "button:has-text('Sign In')"
+    - "a:has-text('Sign In')"
+    - "img[alt*='Steam']"
+  # Профиль открывается кликом по аватарке в правом верхнем углу
+  avatar_menu_button:
+    - "button.mat-mdc-menu-trigger.user"
+    - "button:has(img.avatar)"
+    - ".toolbar button.mat-mdc-menu-trigger.user"
+    - "img.avatar"
+    - "button:has(img[src*='avatars.steamstatic'])"
+  user_menu:
+    - "[role='menu']"
+    - ".mat-mdc-menu-panel"
+    - "mat-menu-content"
+  menu_profile:
+    - ".mat-mdc-menu-item:has-text('Profile')"
+    - "[role='menuitem']:has-text('Profile')"
+    - ".mat-mdc-menu-panel a[href*='profile']"
+    - "[role='menu'] a:has-text('Profile')"
+    - "a:has-text('Profile')"
+  cookie_accept:
+    - "button:has-text('Accept')"
+    - "button:has-text('Got it')"
+  # Окно Onboard: 1 Terms -> 2 Verify Email -> 3 Trade Link -> 4 Done
+  onboard_dialog:
+    - "mat-dialog-container:has-text('Onboard')"
+    - "[role='dialog']:has-text('Onboard')"
+    - "mat-dialog-container:has-text('Required for Buying')"
+    - "text=Required for Buying, Selling"
+  onboard_checkboxes:
+    - "mat-dialog-container mat-checkbox"
+    - "[role='dialog'] mat-checkbox"
+    - "mat-dialog-container [role='checkbox']"
+    - "mat-dialog-container input[type='checkbox']"
+    - "[role='dialog'] input[type='checkbox']"
+  onboard_next:
+    - "mat-dialog-container button:has-text('Next')"
+    - "[role='dialog'] button:has-text('Next')"
+    - "button:has-text('Next')"
+  onboard_email_step:
+    - "mat-dialog-container:has-text('Verify Email')"
+    - "[role='dialog']:has-text('Verify Email')"
+  onboard_email_input:
+    - "mat-dialog-container input[type='email']"
+    - "[role='dialog'] input[type='email']"
+    - "mat-dialog-container input[formcontrolname='email']"
+    - "mat-dialog-container input[placeholder*='mail' i]"
+  # Шаг 2: почта + кнопка Verify (она отправляет токен), затем поле Token
+  onboard_email_verify:
+    - "mat-dialog-container button:has-text('Verify')"
+    - "[role='dialog'] button:has-text('Verify')"
+    - "mat-dialog-container button:has-text('Send')"
+  onboard_token_input:
+    - "mat-dialog-container input[placeholder*='Token' i]"
+    - "[role='dialog'] input[placeholder*='Token' i]"
+    - "mat-dialog-container input[formcontrolname='token']"
+    - "mat-dialog-container input[name='token']"
+  onboard_token_submit:
+    - "mat-dialog-container button:has-text('Next')"
+    - "mat-dialog-container button:has-text('Submit')"
+    - "mat-dialog-container button:has-text('Confirm')"
+    - "[role='dialog'] button[type='submit']"
+  onboard_token_sent:
+    - "text=We sent a token to your email"
+    - "mat-dialog-container:has-text('sent a token')"
+  # Шаг 3: трейд-ссылка
+  onboard_trade_input:
+    - "mat-dialog-container input[placeholder*='trade' i]"
+    - "mat-dialog-container input[formcontrolname='tradeUrl']"
+    - "mat-dialog-container input[placeholder*='steamcommunity' i]"
+    - "mat-dialog-container input[type='url']"
+    - "[role='dialog'] input[type='text']"
+  onboard_trade_submit:
+    - "mat-dialog-container button:has-text('Next')"
+    - "mat-dialog-container button:has-text('Save')"
+    - "mat-dialog-container button:has-text('Submit')"
+    - "mat-dialog-container button:has-text('Finish')"
+  onboard_step_done:
+    - "mat-dialog-container:has-text(\"You're all set\")"
+    - "mat-dialog-container button:has-text('Finish')"
+    - "mat-dialog-container button:has-text('Close')"
+  # Шаг 3 в мастере: значит шаг с почтой пройден
+  onboard_step_trade_link:
+    - "mat-dialog-container:has-text('Trade Link') .mat-step-header[aria-selected='true']"
+    - "mat-dialog-container:has-text('Find it here')"
+  onboard_email_submit:
+    - "mat-dialog-container button:has-text('Verify')"
+    - "mat-dialog-container button:has-text('Send')"
+  settings_email_edit:
+    - "button:has-text('Edit')"
+    - "button:has-text('Change')"
+    - "[class*='edit'] button"
+  settings_email_input:
+    - "input[type='email']"
+    - "input[formcontrolname='email']"
+    - "input[placeholder*='mail' i]"
+  settings_email_save:
+    - "button:has-text('Verify')"
+    - "button:has-text('Save')"
+    - "button:has-text('Send')"
+    - "button[type='submit']"
+  email_pending:
+    - "text=verification email"
+    - "text=Pending verification"
+    - "text=Check your email"
+  email_verified:
+    - "text=Email verified"
+    - "text=Verified"
+    - "[class*='verified']"
+  confirm_success:
+    - "text=Email confirmed"
+    - "text=successfully verified"
+    - "text=Your email has been verified"
+
+outlook:
+  email_input:
+    - "input[name='loginfmt']"
+    - "#i0116"
+    - "input[type='email']"
+  email_next:
+    - "#idSIButton9"
+    - "input[type='submit']"
+    - "button[type='submit']"
+  password_input:
+    - "input[name='passwd']"
+    - "#i0118"
+    - "input[type='password']"
+  password_submit:
+    - "#idSIButton9"
+    - "input[type='submit']"
+    - "button[type='submit']"
+  # Microsoft всё чаще предлагает код вместо пароля — ссылка «ввести пароль»
+  use_password:
+    - "#idA_PWD_SwitchToPassword"
+    - "a:has-text('Use your password')"
+    - "button:has-text('Use your password')"
+    - "a:has-text('Use your password instead')"
+    - "a:has-text('Ввести пароль')"
+    - "text=Use your password"
+  # запасной путь: «другие способы входа» -> плитка с паролем
+  other_sign_in_ways:
+    - "#idA_PWD_SwitchToCredPicker"
+    - "a:has-text('Other ways to sign in')"
+    - "button:has-text('Other ways to sign in')"
+    - "a:has-text('Sign in another way')"
+    - "a:has-text('Другие способы входа')"
+  cred_picker_password:
+    - "#FormsAuthentication"
+    - "div[data-value='Password']"
+    - "div[role='button']:has-text('password')"
+    - "text=Use your password"
+  # После входа Microsoft иногда уводит на главную страницу аккаунта
+  account_home:
+    - "url:account\\.microsoft\\.com"
+  # Уведомление о приватности при первом входе:
+  # privacynotice.account.microsoft.com/notice?ru=...
+  privacy_notice:
+    - "url:privacynotice\\.account\\.microsoft\\.com"
+  privacy_next:
+    - "#id__0"
+    - "button:has-text('Next')"
+    - "button:has-text('Continue')"
+    - "button:has-text('Accept')"
+    - "button:has-text('Got it')"
+    - "button:has-text('Далее')"
+    - "button:has-text('Принять')"
+    - "input[type='submit']"
+    - "button[type='submit']"
+  # "Оставаться в системе?"
+  stay_signed_in_yes:
+    - "#idSIButton9"
+    - "button:has-text('Yes')"
+    - "input[value='Yes']"
+  # "Добавить телефон / сведения безопасности" — пропускаем
+  skip_buttons:
+    - "#iShowSkip"
+    - "#idBtn_Back"
+    - "a:has-text('Skip for now')"
+    - "button:has-text('Skip for now')"
+    - "button:has-text('Not now')"
+    - "button:has-text('Maybe later')"
+    - "a:has-text('Looks good')"
+    - "button:has-text('Looks good')"
+  wrong_password:
+    - "text=Your account or password is incorrect"
+    - "text=that Microsoft account doesn't exist"
+    - "#passwordError"
+  blocked:
+    - "text=Your account has been locked"
+    - "text=We've locked your account"
+    - "text=unusual activity"
+    - "url:account\\.live\\.com/(Abuse|identity|recover)"
+  verify_required:
+    - "text=Help us protect your account"
+    - "text=Verify your identity"
+    - "text=Enter the code"
+    - "url:account\\.live\\.com/identity/confirm"
+  # Microsoft уводит разлогиненных на маркетинговую страницу с deeplink
+  signed_out:
+    - "url:microsoft\\.com/.*outlook"
+    - "url:deeplink="
+    - "#c-shellmenu_custom_outline_signin_bhvr100_right"
+    - "a:has-text('Create free account')"
+  mailbox_ready:
+    - "div[role='listbox']"
+    - "[aria-label='Message list']"
+    - "div[data-app-section='MessageList']"
+  search_input:
+    - "input[aria-label='Search']"
+    - "input[placeholder*='Search']"
+    - "#topSearchInput"
+  # Вкладки списка писем: письмо может лежать в Other, а не в Focused
+  tab_other:
+    - "div[role='tab']:has-text('Other')"
+    - "button:has-text('Other')"
+    - "[aria-label='Other']"
+  message_rows:
+    - "div[role='option']"
+    - "div[role='listbox'] div[role='option']"
+    - "div[role='listitem']"
+    - "div[data-convid]"
+    - "[aria-label*='CSFloat' i]"
+    - "div[role='region'] div[tabindex]"
+  # Заглушка области чтения: пока она видна, письмо не открыто
+  reading_pane_empty:
+    - "text=Select an item to read"
+    - "text=Nothing is selected"
+    - "text=Выберите элемент для чтения"
+  message_body:
+    - "div[aria-label='Message body']"
+    - "div[role='document']"
+    - "#UniqueMessageBody"
+
+captcha:
+  markers:
+    - "iframe[src*='hcaptcha']"
+    - "iframe[src*='recaptcha']"
+    - "iframe[src*='arkoselabs']"
+    - "iframe[src*='funcaptcha']"
+    - "iframe[title*='challenge' i]"
+    - "#px-captcha"
+    - "text=Verify you are human"
+    - "text=Подтвердите, что вы человек"

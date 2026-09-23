@@ -1,11 +1,22 @@
 # Личные настройки поверх config.yaml. Скопируй в config.local.yaml —
-# этот файл не в репозитории, git pull его не тронет.
+# этот файл не в репозитории, поэтому git pull его не тронет и не создаст конфликтов.
+# Пишутся только те ключи, которые нужно поменять, остальное берётся из config.yaml.
+
+mail:
+  provider: firstmail
+  firstmail:
+    api_key: СЮДА-КЛЮЧ-ИЗ-ПАНЕЛИ-FIRSTMAIL   # /panel/api/keys/
+
+# run:
+#   threads: 5
 
 # browser:
-#   start_url: https://steamcommunity.com
-#   block_images: true
+#   start_url: https://csfloat.com      # что открывать в ручном профиле
 #   firefox_prefs:
+#     network.dns.echconfig.enabled: false
 #     network.http.http3.enable: false
+#     network.http.altsvc.enabled: false
+#     network.http.spdy.enabled: false
 
 # web:
 #   port: 8080

@@ -5,8 +5,28 @@ import dataclasses
 from pathlib import Path
 
 
-#: Пометки аккаунта, которые ставит человек в интерфейсе.
+class Status:
+    NEW = "new"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
+    ERROR = "error"
+    SKIPPED = "skipped"
+    # остальные статусы приходят из errors.*.status
+
+
+#: Пометки аккаунта, которые ставит человек в менеджере профилей.
 STATUSES = ("new", "in_work", "done", "bad")
+
+#: Статусы, при которых повторять аккаунт бессмысленно без ручного вмешательства.
+TERMINAL = {
+    "done",
+    "bad_credentials",
+    "steam_locked",
+    "no_mafile",
+    "mail_bad_credentials",
+    "mail_blocked",
+    "not_implemented",
+}
 
 
 @dataclasses.dataclass(slots=True)
@@ -66,3 +86,11 @@ class MaFile:
     path: Path | None = None
 
 
+@dataclasses.dataclass(slots=True)
+class Bundle:
+    """Аккаунт + его прокси + его maFile. Единица работы очереди."""
+
+    account: Account
+    proxy: Proxy
+    mafile: MaFile | None = None
+    error: str | None = None  # причина, если связать не удалось (нет maFile)

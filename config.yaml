@@ -1,56 +1,132 @@
 # ─────────────────────────────────────────────────────────────
-#  Менеджер профилей: изолированный браузер на аккаунт + данные под рукой.
-#  Личные правки клади в config.local.yaml — он перекрывает этот файл
-#  и не конфликтует с git pull.
+#  CSFloat bot: два режима в одном приложении
+#    «Запуск»   — очередь автоматической регистрации (run/csfloat/mail)
+#    «Профили»  — ручной антидетект-браузер (paths.data, browser.start_url)
+#  Селекторы живут отдельно: selectors.yaml
+#  Личные правки клади в config.local.yaml — он перекрывает этот файл.
 # ─────────────────────────────────────────────────────────────
 
+run:
+  threads: 3                 # asyncio.Semaphore
+  headful: false             # true = видимый браузер
+  debug: false               # пошаговый режим с паузами
+  modules: [registration]    # порядок выполнения; api_key появится в модуле 2
+  start_jitter: [1.0, 5.0]   # случайная пауза перед стартом аккаунта, сек
+  skip_statuses: [done]      # какие статусы пропускать при перезапуске
+  circuit_breaker:
+    enabled: true
+    consecutive_failures: 10 # N фатальных подряд -> остановить прогон
+
 paths:
-  accounts: accounts.txt     # login:pass:mail:mailpassword
-  proxies: proxies.txt       # пул прокси, порядок строк не важен
-  mafiles: mafiles           # maFile'ы, сопоставление по account_name внутри файла
-  profiles: profiles         # профили браузера, по одному на аккаунт
-  state: state               # cookies и закреплённые отпечатки
-  data: data                 # привязки аккаунт-прокси, пометки
+  accounts: accounts.txt
+  proxies: proxies.txt
+  mafiles: mafiles
+  state: state
+  profiles: profiles
+  errors: errors
   logs: logs
+  debug_dumps: debug
+  results: results.csv
+  data: data               # привязки аккаунт-прокси и пометки менеджера
 
 browser:
   engine: camoufox           # camoufox | firefox | chromium
-  persistent_profile: true   # профиль на аккаунт, а не только cookies
-  pin_fingerprint: true      # отпечаток закрепляется за аккаунтом навсегда
-  start_url: https://csfloat.com    # что открыть при старте профиля (null — пустая вкладка)
-  os: [windows]              # какие ОС подделывать
+  persistent_profile: true   # профиль на аккаунт (как в антидетект-браузерах), а не только cookies
+  pin_fingerprint: true      # закрепить отпечаток за аккаунтом: seed'ы canvas/audio/fonts не меняются
+  os: [windows]              # какие ОС подделывать (camoufox)
   humanize: true             # человекоподобные движения курсора
-  geoip: true                # locale и таймзона по IP прокси
-  block_images: false        # для ручной работы картинки нужны
-  locale: en-US
+  geoip: true                # подгон locale/timezone под IP прокси
+  block_images: true         # быстрее и дешевле по трафику прокси (в ручном режиме картинки не режутся)
+  start_url: https://csfloat.com    # что открыть при запуске профиля вручную (null — пустая вкладка)
+  locale: en-US              # ВАЖНО: en-US => папка "Junk Email" в Outlook
   timezone: null             # null = из geoip
   enable_cache: true
-  disable_ublock: false
-  executable_path: null      # путь к своему бинарнику браузера
-  firefox_prefs: {}          # напр. network.http.http3.enable: false
-  virtual_display: auto      # auto|true|false — Xvfb для Linux без GUI
+  disable_ublock: false      # диагностика: включи, если страница остаётся пустой
+  executable_path: null      # путь к конкретному бинарнику браузера, если нужен свой
+  firefox_prefs: {}          # диагностика соединения через прокси. Полный набор,
+                             # когда конкретный сайт отдаёт 504, а другие открываются:
+                             #   network.http.http3.enable: false      (QUIC)
+                             #   network.http.altsvc.enabled: false    (кеш Alt-Svc)
+                             #   network.http.spdy.enabled: false      (HTTP/2)
+                             #   network.dns.echconfig.enabled: false  (ECH в TLS)
+                             #   network.dns.http3_echconfig.enabled: false
+                             #   network.dns.native_https_query: false (DNS-записи HTTPS RR)
+  virtual_display: auto      # auto|true|false — Xvfb для headful на Linux без GUI
   viewports:
     - [1280, 800]
     - [1366, 768]
     - [1440, 900]
     - [1536, 864]
     - [1920, 1080]
-  user_agents: []            # пусто = фингерпринт генерирует движок
+  user_agents: []            # пусто = фингерпринт генерирует camoufox
 
 proxy:
   default_scheme: http       # если в строке прокси нет схемы
-  relay_socks_auth: true     # socks5 с авторизацией -> локальный релей
+  relay_socks_auth: true     # socks5 с логином/паролем -> локальный релей без авторизации
   relay_host: 127.0.0.1
 
 timeouts:
-  page_load_ms: 120000
+  page_load_ms: 120000       # резидентские прокси + редиректы Microsoft не влезают в минуту
   action_ms: 30000
+  step_ms: 180000            # предохранитель на один шаг модуля
+  module_s: 900              # общий бюджет на один модуль для аккаунта (в debug не применяется)
+  mail_list_s: 30            # сколько ждать отрисовки списка писем
+  mail_login_s: 240          # общий запас на вход в почту с промежуточными экранами
+  mail_wait_s: 180           # сколько ждём письмо от CSFloat
+  mail_poll_s: 10            # интервал обновления ящика
+
+retries:
+  attempts: 3                # попыток на модуль (только на retryable-ошибки)
+  base_delay_s: 5
+  max_delay_s: 60
 
 steam:
-  time_sync: true            # синхронизация времени для кодов Steam Guard
+  time_sync: true            # синхронизация времени для TOTP
   time_sync_url: https://api.steampowered.com/ITwoFactorService/QueryTime/v0001/
+  login_url: https://steamcommunity.com/login/home/
+  trade_url_page: https://steamcommunity.com/id/me/tradeoffers/privacy
+
+csfloat:
+  base_url: https://csfloat.com
+  fill_trade_link: true      # шаг 3 мастера: взять трейд-ссылку из Steam и вставить
+  login_attempts: 3          # CSFloat часто не подхватывает сессию с первого редиректа
+  render_timeout_s: 25       # сколько ждать отрисовки SPA, прежде чем ругаться на пустую страницу
+  profile_url: https://csfloat.com/profile
+  settings_url: null         # отдельной страницы настроек не нашли: /profile/settings -> 404.
+                             # Пока null, бот работает с профилем. Если найдёшь адрес — впиши сюда.
+  # CSFloat присылает не ссылку, а токен, который вводится в окне Onboard.
+  # Шаблон подогнан под письмо: слово token/code, потом само значение.
+  token_pattern: '(?:token|code)[^A-Za-z0-9]{0,40}([A-Za-z0-9][A-Za-z0-9._-]{3,63})'
+  confirm_link_pattern: 'https?://[^\s"''<>)]*csfloat\.com[^\s"''<>)]*(?:verify|confirm)[^\s"''<>)]*'
+  mail_search: csfloat
+  mail_subject: CSFloat Email Account   # запасной путь: клик по видимому тексту письма       # подстрока для поиска письма в списке OWA.
+                             # Ищется по всей строке письма, а там видно ИМЯ отправителя
+                             # ("CSFloat"), а не адрес — домен сюда писать нельзя.
+                             # :has-text() регистронезависим.
+
+mail:
+  provider: firstmail        # firstmail (API) | outlook_web (браузер). Реализации в bot/pages/mail/
+  check_junk: true           # outlook_web: заглядывать в «Нежелательная почта»
+  base_url: https://outlook.live.com/mail/0/
+  junk_url: https://outlook.live.com/mail/0/junkemail/
+
+  firstmail:
+    api_key: null            # ключ из панели firstmail (/panel/api/keys/). Лучше в config.local.yaml
+    # Адреса и имена полей вынесены в конфиг, чтобы правка документации API
+    # не требовала правки кода.
+    base_url: https://api.firstmail.ltd/v1
+    message_path: /market/get/message      # последнее письмо ящика
+    messages_path: /market/get/messages    # список писем
+    auth_header: X-API-KEY
+    username_param: username
+    password_param: password
+    timeout_s: 30
+
+captcha:
+  solver: none               # none | (задел: anticaptcha, twocaptcha)
+  api_key: null
 
 web:
-  host: 127.0.0.1            # наружу не выставлять: в интерфейсе пароли
+  host: 127.0.0.1
   port: 8000
-  token: null                # если задан, нужен ?token=... в адресе
+  token: null                # если задан — требуется ?token= / заголовок X-Token

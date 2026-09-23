@@ -61,7 +61,7 @@ class Config:
         return p if p.is_absolute() else self.root / p
 
     def ensure_dirs(self) -> None:
-        for key in ("state", "profiles", "data", "logs"):
+        for key in ("state", "profiles", "data", "errors", "logs", "debug_dumps"):
             self.path_for(key).mkdir(parents=True, exist_ok=True)
 
     # ── загрузка/сохранение ──────────────────────────────────
