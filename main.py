@@ -201,13 +201,22 @@ def run_mail_probe(args) -> int:
     способ её читать. Команда делает это с машины, у которой есть доступ.
     """
     from bot.pages.mail.firstmail_api import (
-        CANDIDATE_BASES, CANDIDATE_PATHS, DEFAULTS, SPEC_URLS, raw_get, spec_summary,
+        CANDIDATE_BASES, CANDIDATE_PATHS, DEFAULTS, KNOWN_OK_PATH, SPEC_URLS, raw_get, spec_summary,
     )
 
     cfg, _selectors, _log_path = load_everything(args)
     settings = {**DEFAULTS, **(cfg.get("mail.firstmail") or {})}
     key = str(settings.get("api_key") or os.getenv("FIRSTMAIL_API_KEY") or "").strip()
-    header = str(settings.get("auth_header") or "X-API-KEY")
+    header = str(settings.get("auth_header") or "Authorization")
+    prefix = str(settings.get("auth_prefix") or "")
+
+    def auth(scheme: str | None = None) -> dict:
+        """Заголовок с ключом. scheme=None — как настроено в конфиге."""
+        if not key:
+            return {}
+        if scheme is None:
+            return {header: f"{prefix}{key}"}
+        return {"Authorization": f"Bearer {key}"} if scheme == "bearer" else {"X-API-KEY": key}
 
     mail = args.mail_probe or ""
     password = ""
@@ -222,7 +231,7 @@ def run_mail_probe(args) -> int:
         mail, password = boxes[0].mail, boxes[0].mail_password
 
     print(f"\nКлюч API           : {'задан (' + key[:4] + '…)' if key else 'НЕ ЗАДАН'}")
-    print(f"Заголовок ключа    : {header}")
+    print(f"Заголовок ключа    : {header}: {prefix}<ключ>")
     print(f"Ящик для проверки  : {mail}")
 
     # ── 1. спецификация ──────────────────────────────────────
@@ -247,6 +256,15 @@ def run_mail_probe(args) -> int:
     if not found_spec:
         print("  спецификацию скачать не удалось — иду перебором адресов")
 
+    # ── 1.5 корень API: DRF обычно сам перечисляет эндпоинты ──
+    print("\n1.5) Спрашиваю корень API и адрес из подсказки панели:")
+    for base in CANDIDATE_BASES:
+        for suffix, label in (("/", "корень"), (KNOWN_OK_PATH, "домены (проверка ключа)")):
+            status, body = raw_get(f"{base}{suffix}", auth(), timeout=15)
+            flat = " ".join(body.split())
+            print(f"  {status or '—':<4} {label:<26} {base}{suffix}")
+            print(f"       {flat[:260]}")
+
     # ── 2. перебор адресов ───────────────────────────────────
     print("\n2) Пробую адреса с настоящим ключом и ящиком:")
     query = urllib.parse.urlencode({
@@ -267,7 +285,7 @@ def run_mail_probe(args) -> int:
     working = []
     for base, path in combos[:16]:
         url = f"{base}{path}?{query}"
-        status, body = raw_get(url, {header: key} if key else None, timeout=20)
+        status, body = raw_get(url, auth(), timeout=20)
         flat = " ".join(body.split())
         kind = "JSON" if flat.startswith(("{", "[")) else "HTML/текст"
         if status == 200 and kind == "JSON":
@@ -280,7 +298,7 @@ def run_mail_probe(args) -> int:
     if alive is None:
         # адрес, ответивший JSON хоть с какой-то ошибкой, тоже годится для проверки ключа
         for base, path in combos[:16]:
-            status, body = raw_get(f"{base}{path}?{query}", {header: key} if key else None, timeout=15)
+            status, body = raw_get(f"{base}{path}?{query}", auth(), timeout=15)
             if body.lstrip().startswith(("{", "[")):
                 alive = (base, path)
                 break
@@ -289,15 +307,16 @@ def run_mail_probe(args) -> int:
         base, path = alive
         print(f"\n3) Проверяю ключ на {base}{path} (длина ключа {len(key)} символов):")
         variants = {
-            f"{header}: <ключ>": {header: key},
-            "Authorization: Bearer <ключ>": {"Authorization": f"Bearer {key}"},
+            f"{header}: {prefix}<ключ>": auth(),
+            "Authorization: Bearer <ключ>": auth("bearer"),
+            "X-API-KEY: <ключ>": auth("x-api-key"),
             "без ключа": {},
         }
         for label, headers in variants.items():
             status, body = raw_get(f"{base}{path}?{query}", headers, timeout=15)
             print(f"  {status or '—':<4} {label:<30} {' '.join(body.split())[:110]}")
-        print("\n  «Token is not valid» при верном заголовке = ключ скопирован не целиком"
-              "\n  или отозван; возьми его заново в панели (/panel/api/keys/).")
+        print("\n  Ключ из /panel/api/keys/ — панельный: Authorization: Bearer и база"
+              "\n  firstmail.ltd/api/v1. X-API-KEY — это другой, «рыночный» API со своим ключом.")
 
     print()
     if working:
@@ -307,6 +326,8 @@ def run_mail_probe(args) -> int:
         print(f"    base_url: {base}")
         print(f"    message_path: {path}")
         print("    messages_path: null")
+        print(f"    auth_header: {header}")
+        print(f"    auth_prefix: '{prefix}'")
     else:
         print("Ни один адрес не отдал письма. Пришли вывод этой команды — по нему видно,"
               " что именно отвечает сервис.")

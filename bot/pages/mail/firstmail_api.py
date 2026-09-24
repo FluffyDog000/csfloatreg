@@ -25,12 +25,15 @@ from .base import extract_link, extract_token, register
 
 #: Значения по умолчанию. Всё это перекрывается секцией mail.firstmail в конфиге.
 DEFAULTS = {
-    "base_url": "https://api.firstmail.ltd/v1",
-    # проверено разведкой: сервис отдаёт только последнее письмо,
-    # /market/get/messages у него нет (404)
+    # Ключ из панели (/panel/api/keys/) — это ключ ПАНЕЛЬНОГО API: он ходит
+    # с заголовком Authorization: Bearer и базой firstmail.ltd/api/v1.
+    # У сервиса есть и второй, «рыночный» API (api.firstmail.ltd/v1/market/…,
+    # заголовок X-API-KEY) — там нужен отдельный ключ.
+    "base_url": "https://firstmail.ltd/api/v1",
     "message_path": "/market/get/message",
     "messages_path": None,
-    "auth_header": "X-API-KEY",
+    "auth_header": "Authorization",
+    "auth_prefix": "Bearer ",       # для X-API-KEY поставь пустую строку
     "username_param": "username",
     "password_param": "password",
     "timeout_s": 30,
@@ -97,25 +100,31 @@ def has_message(payload) -> bool:
 #: Где панель firstmail держит спецификацию своего API.
 SPEC_URLS = (
     "https://firstmail.ltd/static/api/openapi.json",
-    "https://api.firstmail.ltd/static/api/openapi.json",
+    "https://firstmail.ltd/api/v1/openapi.json",
+    "https://firstmail.ltd/api/openapi.json",
+    "https://firstmail.ltd/api/schema/",          # drf-spectacular
+    "https://firstmail.ltd/api/v1/schema/",
+    "https://firstmail.ltd/api/v1/swagger.json",
     "https://api.firstmail.ltd/openapi.json",
-    "https://api.firstmail.ltd/docs/openapi.json",
-    "https://firstmail.ltd/openapi.json",
 )
 
 #: Кандидаты на базовый адрес и путь — перебираем, когда настроенный отдаёт 404.
 CANDIDATE_BASES = (
-    "https://api.firstmail.ltd/v1",
-    "https://api.firstmail.ltd",
-    "https://api.firstmail.ltd/api/v1",
+    "https://firstmail.ltd/api/v1",      # панельный API, ключ Bearer
+    "https://api.firstmail.ltd/v1",      # рыночный API, ключ X-API-KEY
 )
 CANDIDATE_PATHS = (
-    "/market/get/message",      # единственный рабочий по состоянию на 09.2026
-    "/market/get/messages",
+    "/market/get/message",
+    "/mail/",
+    "/mails/",
+    "/mailbox/",
+    "/messages/",
+    "/mail/messages/",
     "/mail/one",
-    "/mail/messages",
-    "/get/message",
 )
+
+#: Адрес из подсказки панели: по нему проверяется, что ключ вообще принимают.
+KNOWN_OK_PATH = "/domains/"
 
 
 def raw_get(url: str, headers: dict | None = None, *, timeout: float = 20.0) -> tuple[int, str]:
@@ -294,7 +303,7 @@ class FirstMailProvider:
         request = urllib.request.Request(
             url,
             headers={
-                self.cfg["auth_header"]: self.api_key,
+                self.cfg["auth_header"]: f"{self.cfg.get('auth_prefix') or ''}{self.api_key}",
                 "Accept": "application/json",
                 "User-Agent": "csfloatreg/1.0",
             },
