@@ -20,6 +20,7 @@ errors/
 logs/
 debug/
 results.csv
+firstmail-openapi.json
 uploads/
 
 # Python

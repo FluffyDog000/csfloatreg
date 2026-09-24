@@ -88,6 +88,68 @@ def has_message(payload) -> bool:
     return True
 
 
+#: Где панель firstmail держит спецификацию своего API.
+SPEC_URLS = (
+    "https://firstmail.ltd/static/api/openapi.json",
+    "https://api.firstmail.ltd/static/api/openapi.json",
+    "https://api.firstmail.ltd/openapi.json",
+    "https://api.firstmail.ltd/docs/openapi.json",
+    "https://firstmail.ltd/openapi.json",
+)
+
+#: Кандидаты на базовый адрес и путь — перебираем, когда настроенный отдаёт 404.
+CANDIDATE_BASES = (
+    "https://api.firstmail.ltd/v1",
+    "https://api.firstmail.ltd",
+    "https://api.firstmail.ltd/api/v1",
+)
+CANDIDATE_PATHS = (
+    "/market/get/message",
+    "/market/get/messages",
+    "/mail/one",
+    "/mail/messages",
+    "/get/message",
+)
+
+
+def raw_get(url: str, headers: dict | None = None, *, timeout: float = 20.0) -> tuple[int, str]:
+    """Запрос без исключений: отдаёт код и тело как есть. Нужен разведке."""
+    request = urllib.request.Request(
+        url, headers={"Accept": "application/json", "User-Agent": "csfloatreg/1.0", **(headers or {})},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return 0, f"сеть: {exc}"
+
+
+def spec_summary(text: str) -> list[str]:
+    """Короткая выжимка из openapi.json: путь, метод, параметры."""
+    try:
+        spec = json.loads(text)
+    except ValueError:
+        return []
+    lines = []
+    for path, methods in (spec.get("paths") or {}).items():
+        if not isinstance(methods, dict):
+            continue
+        for method, body in methods.items():
+            if method.lower() not in ("get", "post", "put", "patch", "delete"):
+                continue
+            params = [
+                str(item.get("name"))
+                for item in (body.get("parameters") or [])
+                if isinstance(item, dict) and item.get("name")
+            ]
+            summary = str((body or {}).get("summary") or "")[:60]
+            lines.append(f"{method.upper():<5} {path:<40} {', '.join(params) or '—':<40} {summary}")
+    return sorted(lines)
+
+
 @register("firstmail")
 class FirstMailProvider:
     """Ящик firstmail. Браузер не открывается вообще."""
@@ -232,12 +294,21 @@ class FirstMailProvider:
             with urllib.request.urlopen(request, timeout=float(self.cfg["timeout_s"])) as response:
                 body = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")[:300]
+            body = exc.read().decode("utf-8", errors="replace")
+            short = " ".join(body.split())[:200]
             if exc.code in (401, 403):
-                raise MailBadCredentials(f"firstmail: ключ API отклонён ({exc.code}) {body}") from None
+                raise MailBadCredentials(f"firstmail: ключ API отклонён ({exc.code}) {short}") from None
             if exc.code == 404:
-                raise MailBadCredentials(f"firstmail: ящик {self.mail} не найден (404) {body}") from None
-            raise NetworkError(f"firstmail: HTTP {exc.code} {body}") from None
+                # HTML вместо JSON означает «нет такого адреса», а не «нет ящика»:
+                # раньше мы сваливали это в одну кучу и искали проблему не там
+                if not body.lstrip().startswith(("{", "[")):
+                    raise MailBadCredentials(
+                        f"firstmail: сервер не знает адрес {url.split('?')[0]} (404, ответ не JSON). "
+                        f"Проверь mail.firstmail.base_url и *_path по документации API "
+                        f"(`python main.py --mail-probe` покажет, какие адреса рабочие)"
+                    ) from None
+                raise MailBadCredentials(f"firstmail: ящик {self.mail} не найден (404) {short}") from None
+            raise NetworkError(f"firstmail: HTTP {exc.code} {short}") from None
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise NetworkError(f"firstmail: сеть недоступна ({exc})") from None
 

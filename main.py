@@ -16,6 +16,7 @@ import json
 import os
 import signal
 import sys
+import urllib.parse
 
 from bot import logging_setup
 from bot.config import Config, load_selectors
@@ -53,6 +54,11 @@ def build_parser() -> argparse.ArgumentParser:
              "(так достаются пункты меню, которых нет в DOM до клика)",
     )
     parser.add_argument("--check", action="store_true", help="проверить входные файлы и выйти")
+    parser.add_argument(
+        "--mail-probe", nargs="?", const="", metavar="MAIL",
+        help="разведка API firstmail: скачать спецификацию, перебрать адреса и показать, "
+             "какой отвечает (ящик берётся из --only или первый в списке)",
+    )
     parser.add_argument("--run", action="store_true", help="прогон очереди в консоли (без веб-интерфейса)")
     parser.add_argument("--log-level", default="INFO", help="уровень логов в консоли")
     parser.add_argument("--web", action="store_true", help="веб-интерфейс (режим по умолчанию)")
@@ -185,6 +191,97 @@ async def run_reset(args) -> int:
             await results.update(login, module, status="new", stage="", error="", attempts=0)
         print(f"  сброшен: {login}")
     print(f"\nГотово: {len(bundles)} аккаунт(ов). Отпечатки в state/*.fp.json сохранены.")
+    return 0
+
+
+def run_mail_probe(args) -> int:
+    """Разведка API firstmail: где живут эндпоинты и что они отвечают.
+
+    Документация у сервиса меняется, а гадать по одной строке лога — худший
+    способ её читать. Команда делает это с машины, у которой есть доступ.
+    """
+    from bot.pages.mail.firstmail_api import (
+        CANDIDATE_BASES, CANDIDATE_PATHS, DEFAULTS, SPEC_URLS, raw_get, spec_summary,
+    )
+
+    cfg, _selectors, _log_path = load_everything(args)
+    settings = {**DEFAULTS, **(cfg.get("mail.firstmail") or {})}
+    key = str(settings.get("api_key") or os.getenv("FIRSTMAIL_API_KEY") or "").strip()
+    header = str(settings.get("auth_header") or "X-API-KEY")
+
+    mail = args.mail_probe or ""
+    password = ""
+    if not mail:
+        bundles = load_all(cfg)
+        if args.only:
+            bundles = [b for b in bundles if b.account.login.lower() == args.only.lower()]
+        boxes = [b.account for b in bundles if b.account.mail]
+        if not boxes:
+            print("Не из чего брать ящик: заполни mails.txt или передай почту в --mail-probe", file=sys.stderr)
+            return 2
+        mail, password = boxes[0].mail, boxes[0].mail_password
+
+    print(f"\nКлюч API           : {'задан (' + key[:4] + '…)' if key else 'НЕ ЗАДАН'}")
+    print(f"Заголовок ключа    : {header}")
+    print(f"Ящик для проверки  : {mail}")
+
+    # ── 1. спецификация ──────────────────────────────────────
+    print("\n1) Ищу спецификацию API:")
+    found_spec = False
+    for url in SPEC_URLS:
+        status, body = raw_get(url, timeout=15)
+        mark = "OK " if status == 200 and body.lstrip().startswith("{") else f"{status or '—'}  "
+        print(f"  {mark} {url}")
+        if status == 200 and body.lstrip().startswith("{"):
+            lines = spec_summary(body)
+            if lines:
+                found_spec = True
+                print(f"\n  Эндпоинты из спецификации ({len(lines)}):")
+                print(f"    {'МЕТОД':<5} {'ПУТЬ':<40} {'ПАРАМЕТРЫ':<40} ОПИСАНИЕ")
+                for line in lines:
+                    print("    " + line)
+                target = cfg.root / "firstmail-openapi.json"
+                target.write_text(body, encoding="utf-8")
+                print(f"\n  Полная спецификация сохранена: {target}")
+            break
+    if not found_spec:
+        print("  спецификацию скачать не удалось — иду перебором адресов")
+
+    # ── 2. перебор адресов ───────────────────────────────────
+    print("\n2) Пробую адреса с настоящим ключом и ящиком:")
+    query = urllib.parse.urlencode({
+        str(settings["username_param"]): mail,
+        str(settings["password_param"]): password,
+    })
+    configured = (str(settings["base_url"]).rstrip("/"), str(settings["messages_path"]))
+    combos = [configured] + [
+        (base, path)
+        for base in CANDIDATE_BASES
+        for path in CANDIDATE_PATHS
+        if (base, path) != configured
+    ]
+
+    working = []
+    for base, path in combos[:16]:
+        url = f"{base}{path}?{query}"
+        status, body = raw_get(url, {header: key} if key else None, timeout=20)
+        flat = " ".join(body.split())
+        kind = "JSON" if flat.startswith(("{", "[")) else "HTML/текст"
+        if status == 200 and kind == "JSON":
+            working.append((base, path))
+        print(f"  {status or '—':<4} {kind:<10} {base}{path}")
+        print(f"       {flat[:150]}")
+
+    print()
+    if working:
+        base, path = working[0]
+        print("Рабочий адрес найден. Впиши в config.yaml:\n")
+        print("mail:\n  firstmail:")
+        print(f"    base_url: {base}")
+        print(f"    messages_path: {path}")
+        print(f"    message_path: {path}")
+    else:
+        print("Ни один адрес не ответил JSON. Пришли вывод этой команды — по нему видно, что именно отвечает сервис.")
     return 0
 
 
@@ -425,6 +522,8 @@ def main() -> int:
     try:
         if args.reset:
             return asyncio.run(run_reset(args))
+        if args.mail_probe is not None:
+            return run_mail_probe(args)
         if args.probe is not None:
             return asyncio.run(run_probe(args))
         if args.run or args.check:
