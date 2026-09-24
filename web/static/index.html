@@ -135,7 +135,6 @@
       <div class="tabs">
         <button data-tab="accounts" class="active">Аккаунты</button>
         <button data-tab="config">config.yaml</button>
-        <button data-tab="local">config.local.yaml</button>
         <button data-tab="selectors">selectors.yaml</button>
       </div>
 
@@ -189,22 +188,6 @@
             <button class="primary" data-save="config">Сохранить</button>
             <button class="ghost" id="btnConfigReload2">Перечитать конфиг</button>
             <span class="muted">без перечитывания правка применится только после перезапуска</span>
-          </div>
-        </div>
-      </div>
-
-      <div id="tab-local" class="hidden">
-        <div class="body">
-          <p class="muted" style="margin:0 0 8px">
-            Личные настройки поверх config.yaml: ключ firstmail, потоки, порт.
-            Этот файл не в репозитории и перекрывает основной — если ключ задан здесь,
-            правка в config.yaml ничего не изменит.
-          </p>
-          <textarea id="localText" spellcheck="false"></textarea>
-          <div class="row" style="margin-top:10px">
-            <button class="primary" data-save="local">Сохранить</button>
-            <button class="ghost" id="btnConfigReload">Перечитать конфиг</button>
-            <span class="muted">перечитывание применяет правки без перезапуска</span>
           </div>
         </div>
       </div>
@@ -502,10 +485,9 @@ async function reloadConfig() {
   try {
     const res = await api('/api/config/reload', { method: 'POST' });
     STATE = res.state; render();
-    toast('Конфиг перечитан · ключ firstmail: ' + (res.mail_key ? 'задан (' + res.mail_key_from + ')' : 'НЕ ЗАДАН'), !res.mail_key);
+    toast('Конфиг перечитан · ключ firstmail: ' + (res.mail_key ? 'задан' : 'НЕ ЗАДАН'), !res.mail_key);
   } catch (e) { toast(e.message, true); }
 }
-$('#btnConfigReload').onclick = reloadConfig;
 $('#btnConfigReload2').onclick = reloadConfig;
 $('#btnStop').onclick = async () => {
   try { await api('/api/stop', { method: 'POST' }); toast('Останавливаю…'); } catch (e) { toast(e.message, true); }
@@ -516,12 +498,10 @@ $('#btnClearLog').onclick = () => { $('#log').innerHTML = ''; };
 document.querySelectorAll('.tabs button').forEach(btn => {
   btn.onclick = async () => {
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b === btn));
-    ['accounts', 'config', 'local', 'selectors'].forEach(name =>
+    ['accounts', 'config', 'selectors'].forEach(name =>
       $('#tab-' + name).classList.toggle('hidden', name !== btn.dataset.tab));
     if (btn.dataset.tab === 'config' && !$('#configText').value)
       $('#configText').value = (await api('/api/config/config')).text;
-    if (btn.dataset.tab === 'local' && !$('#localText').value)
-      $('#localText').value = (await api('/api/config/local')).text;
     if (btn.dataset.tab === 'selectors' && !$('#selectorsText').value)
       $('#selectorsText').value = (await api('/api/config/selectors')).text;
   };
@@ -530,11 +510,11 @@ document.querySelectorAll('.tabs button').forEach(btn => {
 document.querySelectorAll('[data-save]').forEach(btn => {
   btn.onclick = async () => {
     const name = btn.dataset.save;
-    const text = { config: $('#configText'), local: $('#localText'), selectors: $('#selectorsText') }[name].value;
+    const text = name === 'config' ? $('#configText').value : $('#selectorsText').value;
     try {
       const res = await api('/api/config/' + name, { method: 'POST', body: JSON.stringify({ text }) });
       toast('Сохранено, бэкап: ' + res.backup);
-      if (name === 'config' || name === 'local') await reloadConfig();   // чтобы правка сразу работала
+      if (name === 'config') await reloadConfig();       // чтобы правка сразу работала
     } catch (e) { toast(e.message, true); }
   };
 });

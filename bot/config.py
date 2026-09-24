@@ -29,7 +29,6 @@ class Config:
         self._data = data
         self.path = path
         self.root = root or ROOT
-        self.local: dict | None = None      # содержимое config.local.yaml, если он есть
 
     # ── чтение ───────────────────────────────────────────────
     def get(self, dotted: str, default: Any = None) -> Any:
@@ -67,9 +66,15 @@ class Config:
 
     # ── загрузка/сохранение ──────────────────────────────────
     @staticmethod
-    def local_path(path: Path) -> Path:
-        """config.local.yaml рядом с основным файлом."""
-        return path.with_name(path.stem + ".local" + path.suffix)
+    def stale_local(path: Path) -> Path | None:
+        """Старый config.local.yaml, если он остался с прошлых версий.
+
+        Файл больше не читается: настройки живут в одном config.yaml. Молча
+        игнорировать его нельзя — человек правил бы файл, который ни на что
+        не влияет, поэтому зовущий обязан про него предупредить.
+        """
+        legacy = path.with_name(path.stem + ".local" + path.suffix)
+        return legacy if legacy.exists() else None
 
     @staticmethod
     def _read(path: Path) -> dict:
@@ -93,35 +98,15 @@ class Config:
         return cfg
 
     def reload(self) -> "Config":
-        """Перечитать файлы в тот же объект: ссылки на cfg по коду остаются живыми."""
+        """Перечитать файл в тот же объект: ссылки на cfg по коду остаются живыми."""
         if self.path is None:
             return self
-        data = self._read(self.path)
-        self.local = None
-        # config.local.yaml перекрывает config.yaml и не лежит в репозитории:
-        # так личные правки переживают git pull и ничего не конфликтует
-        local = self.local_path(self.path)
-        if local.exists():
-            self.local = self._read(local)
-            data = _deep_merge(data, self.local)
-        self._data = data
+        self._data = self._read(self.path)
         return self
 
     def sources(self) -> list[Path]:
-        """Файлы, из которых собрано текущее содержимое."""
-        if self.path is None:
-            return []
-        local = self.local_path(self.path)
-        return [self.path] + ([local] if local.exists() else [])
-
-    def origin(self, dotted: str) -> str:
-        """Откуда взялось значение: из config.local.yaml или из основного файла."""
-        node = self.local
-        for part in dotted.split("."):
-            if not isinstance(node, dict) or part not in node:
-                return "config.yaml"
-            node = node[part]
-        return "config.local.yaml"
+        """Файлы, из которых собрано текущее содержимое. Он один — так понятнее."""
+        return [self.path] if self.path else []
 
     def apply_cli(self, args) -> "Config":
         """CLI перекрывает yaml. Пустые/None значения игнорируются."""

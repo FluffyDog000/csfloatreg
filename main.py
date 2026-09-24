@@ -95,6 +95,12 @@ def load_everything(args):
     selectors = load_selectors(args.selectors)
     log = logging_setup.get_logger()
     log.info("Код: %s", code_version(cfg.root))
+    legacy = Config.stale_local(cfg.path) if cfg.path else None
+    if legacy is not None:
+        log.warning(
+            "%s больше не читается: настройки живут в одном config.yaml. "
+            "Перенеси нужное туда и удали файл", legacy.name,
+        )
     log.info(
         "Адреса CSFloat: профиль=%s настройки=%s",
         cfg.get("csfloat.profile_url"), cfg.get("csfloat.settings_url"),
@@ -104,10 +110,8 @@ def load_everything(args):
 
 def print_effective(cfg) -> None:
     """Что бот реально прочитал из конфигов — чтобы не гадать, чей это файл."""
-    local = cfg.path.with_name(cfg.path.stem + ".local" + cfg.path.suffix) if cfg.path else None
     print("\nНастройки, которые применились:")
     print(f"  config.yaml        : {cfg.path}")
-    print(f"  config.local.yaml  : {local if local and local.exists() else '(нет)'}")
     for key in ("csfloat.profile_url", "csfloat.settings_url", "browser.engine",
                 "browser.persistent_profile", "browser.firefox_prefs", "run.threads",
                 "mail.source", "mail.provider", "mail.firstmail.base_url"):

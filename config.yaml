@@ -3,7 +3,8 @@
 #    «Запуск»   — очередь автоматической регистрации (run/csfloat/mail)
 #    «Профили»  — ручной антидетект-браузер (paths.data, browser.start_url)
 #  Селекторы живут отдельно: selectors.yaml
-#  Личные правки клади в config.local.yaml — он перекрывает этот файл.
+#  Все настройки здесь: отдельного config.local.yaml больше нет.
+#  Ключ firstmail можно держать не в файле, а в переменной FIRSTMAIL_API_KEY.
 # ─────────────────────────────────────────────────────────────
 
 run:
@@ -114,7 +115,8 @@ mail:
   junk_url: https://outlook.live.com/mail/0/junkemail/
 
   firstmail:
-    api_key: null            # ключ из панели firstmail (/panel/api/keys/). Лучше в config.local.yaml
+    api_key: null            # ключ из панели firstmail (/panel/api/keys/)
+                             # или переменная окружения FIRSTMAIL_API_KEY
     # Адреса и имена полей вынесены в конфиг, чтобы правка документации API
     # не требовала правки кода.
     base_url: https://api.firstmail.ltd/v1

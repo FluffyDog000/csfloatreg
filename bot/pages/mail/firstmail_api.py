@@ -125,19 +125,20 @@ class FirstMailProvider:
             files = [str(path) for path in cfg.sources()]
         except Exception:  # noqa: BLE001 — конфиг мог прийти из теста
             pass
-        where = ", ".join(files) if files else "(файлы конфига неизвестны)"
-        override = ""
+        where = ", ".join(files) if files else "(файл конфига неизвестен)"
+        legacy = ""
         try:
-            if cfg.origin("mail.firstmail.api_key") == "config.local.yaml":
-                override = (
-                    " ВНИМАНИЕ: ключ mail.firstmail.api_key задан в config.local.yaml и"
-                    " перекрывает config.yaml — правь именно локальный файл."
+            stale = cfg.stale_local(cfg.path) if cfg.path else None
+            if stale is not None:
+                legacy = (
+                    f" ВНИМАНИЕ: рядом лежит {stale.name} — он больше не читается,"
+                    " ключ должен быть в config.yaml."
                 )
         except Exception:  # noqa: BLE001
             pass
         return (
             "не задан mail.firstmail.api_key (ключ из панели firstmail, /panel/api/keys/). "
-            f"Прочитаны: {where}.{override} "
+            f"Прочитан: {where}.{legacy} "
             "После правки конфига нажми «Перечитать конфиг» в интерфейсе или перезапусти "
             "процесс — на лету файл не перечитывается. Ключ можно положить и в переменную "
             "окружения FIRSTMAIL_API_KEY."

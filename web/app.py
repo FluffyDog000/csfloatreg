@@ -137,6 +137,7 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI):
         hub.bind_loop(asyncio.get_running_loop())
+        _warn_stale_local()
         await steam_time.sync(logging_setup.get_logger())
         yield
         await manager.close_all()
@@ -274,10 +275,22 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
         hub.publish("log", level="INFO", text=f"Загружено в {kind}: {len(saved)} файл(ов)")
         return {"saved": saved, "state": state.snapshot()}
 
+    def _stale_local():
+        return cfg.stale_local(cfg.path) if cfg.path else None
+
+    def _warn_stale_local() -> None:
+        legacy = _stale_local()
+        if legacy is not None:
+            hub.publish(
+                "log", level="WARNING",
+                text=f"{legacy.name} больше не читается — перенеси настройки в config.yaml "
+                     f"и удали файл, иначе будешь править то, что ни на что не влияет",
+            )
+
     # ── конфиги ──────────────────────────────────────────────
     @app.post("/api/config/reload")
     async def api_config_reload():
-        """Перечитать config.yaml + config.local.yaml в живой объект настроек.
+        """Перечитать config.yaml в живой объект настроек.
 
         Без этого правка ключа или таймаутов доходила до бота только перезапуском
         процесса, а сообщение об ошибке при этом выглядело как «я же вписал».
@@ -295,11 +308,12 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
             text=f"Конфиг перечитан ({', '.join(sources)}), ключ firstmail: "
                  + ("задан" if key_set else "НЕ ЗАДАН"),
         )
+        _warn_stale_local()
         return {
             "sources": [str(path) for path in cfg.sources()],
             "mail_key": key_set,
-            "mail_key_from": cfg.origin("mail.firstmail.api_key"),
             "provider": cfg.get("mail.provider"),
+            "stale_local": str(_stale_local() or ""),
             "state": state.snapshot(),
         }
 
@@ -335,14 +349,6 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     def _config_path(name: str) -> Path:
         if name == "config":
             return cfg.path or (cfg.root / "config.yaml")
-        if name == "local":
-            path = cfg.local_path(cfg.path or (cfg.root / "config.yaml"))
-            if not path.exists():
-                path.write_text(
-                    "# Личные настройки поверх config.yaml.\n"
-                    "mail:\n  firstmail:\n    api_key: \n", encoding="utf-8"
-                )
-            return path
         if name == "selectors":
             path = Path(state.selectors_path)
             return path if path.is_absolute() else cfg.root / path
