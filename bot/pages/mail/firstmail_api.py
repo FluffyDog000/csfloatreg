@@ -26,8 +26,10 @@ from .base import extract_link, extract_token, register
 #: Значения по умолчанию. Всё это перекрывается секцией mail.firstmail в конфиге.
 DEFAULTS = {
     "base_url": "https://api.firstmail.ltd/v1",
+    # проверено разведкой: сервис отдаёт только последнее письмо,
+    # /market/get/messages у него нет (404)
     "message_path": "/market/get/message",
-    "messages_path": "/market/get/messages",
+    "messages_path": None,
     "auth_header": "X-API-KEY",
     "username_param": "username",
     "password_param": "password",
@@ -39,6 +41,10 @@ _ID_KEYS = ("id", "uid", "message_id", "messageId", "msg_id", "guid")
 
 #: Ключи, под которыми может лежать список писем.
 _LIST_KEYS = ("messages", "mails", "emails", "items", "data", "result", "results")
+
+
+class EndpointMissing(MailBadCredentials):
+    """Сервис не знает такого URL. Отдельный тип, чтобы перебрать остальные."""
 
 
 def _texts(node) -> Iterator[str]:
@@ -104,7 +110,7 @@ CANDIDATE_BASES = (
     "https://api.firstmail.ltd/api/v1",
 )
 CANDIDATE_PATHS = (
-    "/market/get/message",
+    "/market/get/message",      # единственный рабочий по состоянию на 09.2026
     "/market/get/messages",
     "/mail/one",
     "/mail/messages",
@@ -262,6 +268,10 @@ class FirstMailProvider:
                 continue
             try:
                 payload = await asyncio.to_thread(self._request, path)
+            except EndpointMissing as exc:
+                # такого URL у сервиса нет — пробуем следующий кандидат
+                last_error = exc
+                continue
             except MailBadCredentials:
                 raise
             except NetworkError as exc:
@@ -297,12 +307,17 @@ class FirstMailProvider:
             body = exc.read().decode("utf-8", errors="replace")
             short = " ".join(body.split())[:200]
             if exc.code in (401, 403):
-                raise MailBadCredentials(f"firstmail: ключ API отклонён ({exc.code}) {short}") from None
+                raise MailBadCredentials(
+                    f"firstmail: сервис не принял ключ ({exc.code}): {short}. "
+                    f"Ключ длиной {len(self.api_key)} символов, заголовок {self.cfg['auth_header']}. "
+                    "Чаще всего ключ скопирован не целиком — возьми его заново в панели "
+                    "(/panel/api/keys/) и проверь `python main.py --mail-probe`"
+                ) from None
             if exc.code == 404:
                 # HTML вместо JSON означает «нет такого адреса», а не «нет ящика»:
                 # раньше мы сваливали это в одну кучу и искали проблему не там
                 if not body.lstrip().startswith(("{", "[")):
-                    raise MailBadCredentials(
+                    raise EndpointMissing(
                         f"firstmail: сервер не знает адрес {url.split('?')[0]} (404, ответ не JSON). "
                         f"Проверь mail.firstmail.base_url и *_path по документации API "
                         f"(`python main.py --mail-probe` покажет, какие адреса рабочие)"

@@ -121,7 +121,7 @@ mail:
     # не требовала правки кода.
     base_url: https://api.firstmail.ltd/v1
     message_path: /market/get/message      # последнее письмо ящика
-    messages_path: /market/get/messages    # список писем
+    messages_path: null                    # списка писем у сервиса нет (404)
     auth_header: X-API-KEY
     username_param: username
     password_param: password

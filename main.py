@@ -253,7 +253,10 @@ def run_mail_probe(args) -> int:
         str(settings["username_param"]): mail,
         str(settings["password_param"]): password,
     })
-    configured = (str(settings["base_url"]).rstrip("/"), str(settings["messages_path"]))
+    configured = (
+        str(settings["base_url"]).rstrip("/"),
+        str(settings.get("messages_path") or settings.get("message_path") or "/market/get/message"),
+    )
     combos = [configured] + [
         (base, path)
         for base in CANDIDATE_BASES
@@ -272,16 +275,41 @@ def run_mail_probe(args) -> int:
         print(f"  {status or '—':<4} {kind:<10} {base}{path}")
         print(f"       {flat[:150]}")
 
+    # ── 3. проверка ключа на адресе, который отвечает JSON ───
+    alive = working[0] if working else None
+    if alive is None:
+        # адрес, ответивший JSON хоть с какой-то ошибкой, тоже годится для проверки ключа
+        for base, path in combos[:16]:
+            status, body = raw_get(f"{base}{path}?{query}", {header: key} if key else None, timeout=15)
+            if body.lstrip().startswith(("{", "[")):
+                alive = (base, path)
+                break
+
+    if alive is not None:
+        base, path = alive
+        print(f"\n3) Проверяю ключ на {base}{path} (длина ключа {len(key)} символов):")
+        variants = {
+            f"{header}: <ключ>": {header: key},
+            "Authorization: Bearer <ключ>": {"Authorization": f"Bearer {key}"},
+            "без ключа": {},
+        }
+        for label, headers in variants.items():
+            status, body = raw_get(f"{base}{path}?{query}", headers, timeout=15)
+            print(f"  {status or '—':<4} {label:<30} {' '.join(body.split())[:110]}")
+        print("\n  «Token is not valid» при верном заголовке = ключ скопирован не целиком"
+              "\n  или отозван; возьми его заново в панели (/panel/api/keys/).")
+
     print()
     if working:
         base, path = working[0]
         print("Рабочий адрес найден. Впиши в config.yaml:\n")
         print("mail:\n  firstmail:")
         print(f"    base_url: {base}")
-        print(f"    messages_path: {path}")
         print(f"    message_path: {path}")
+        print("    messages_path: null")
     else:
-        print("Ни один адрес не ответил JSON. Пришли вывод этой команды — по нему видно, что именно отвечает сервис.")
+        print("Ни один адрес не отдал письма. Пришли вывод этой команды — по нему видно,"
+              " что именно отвечает сервис.")
     return 0
 
 
