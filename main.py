@@ -230,9 +230,16 @@ def run_mail_probe(args) -> int:
             return 2
         mail, password = boxes[0].mail, boxes[0].mail_password
 
-    print(f"\nКлюч API           : {'задан (' + key[:4] + '…)' if key else 'НЕ ЗАДАН'}")
+    print(f"\nКлюч API           : {'задан (' + key[:4] + '…, ' + str(len(key)) + ' символов)' if key else 'НЕ ЗАДАН'}")
     print(f"Заголовок ключа    : {header}: {prefix}<ключ>")
     print(f"Ящик для проверки  : {mail}")
+    # запрос — обычный GET с заголовком, как в примере из панели: показываем его целиком,
+    # чтобы можно было сравнить руками
+    print(
+        f"\nЭквивалент curl:\n  curl -H \"{header}: {prefix}<ключ>\" "
+        f"\"{str(settings['base_url']).rstrip('/')}{settings.get('message_path')}"
+        f"?{settings['username_param']}=<почта>&{settings['password_param']}=<пароль>\""
+    )
 
     # ── 1. спецификация ──────────────────────────────────────
     print("\n1) Ищу спецификацию API:")
