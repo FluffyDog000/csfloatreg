@@ -27,10 +27,12 @@ class SteamLoginPage(PageHelper):
         сессии бот уходил искать несуществующее поле логина.
         """
         sel = self.ctx.sel
+        # порядок важен: если на странице есть кнопка подтверждения, жать надо её,
+        # даже когда какой-то маркер успеха тоже сработал
         state = await self.wait_any(
             {
-                "success": success_markers,
                 "confirm": sel("steam.openid_signin_button", required=False),
+                "success": success_markers,
                 "credentials": sel("steam.username"),
                 "qr": sel("steam.use_password_login", required=False),
                 "bad_credentials": sel("steam.bad_credentials"),
@@ -40,6 +42,17 @@ class SteamLoginPage(PageHelper):
             timeout=30,
         )
         await self._raise_on_bad_state(state)
+        self.log.info("Страница Steam: состояние '%s', URL %s", state, self.page.url[:120])
+
+        if state == "success" and "/openid" in self.page.url:
+            # ложное срабатывание: страница OpenID — это ещё не вход
+            self.log.warning("Маркер успеха сработал на странице OpenID — ищу кнопку подтверждения")
+            if await self.first_visible(sel("steam.openid_signin_button", required=False), timeout=5):
+                state = "confirm"
+            else:
+                raise UnexpectedState(
+                    "на странице OpenID нет ни кнопки подтверждения, ни формы логина"
+                )
 
         if state == "success":
             self.log.info("Steam уже авторизован, подтверждение не требуется")

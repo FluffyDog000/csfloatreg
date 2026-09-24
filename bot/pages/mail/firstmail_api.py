@@ -109,15 +109,39 @@ class FirstMailProvider:
     async def login(self) -> None:
         """Логина как такового нет: проверяем ключ и запоминаем старые письма."""
         if not self.api_key:
-            raise MailBadCredentials(
-                "не задан mail.firstmail.api_key (ключ из панели firstmail, /panel/api/keys/)"
-            )
+            raise MailBadCredentials(self._no_key_hint())
         if not self.mail or not self.password:
             raise MailBadCredentials("в accounts.txt нет почты или пароля от неё")
 
         messages = await self._fetch()
         self._seen = {message_key(m) for m in messages}
         self.log.info("firstmail: ящик %s доступен, писем в выдаче: %d", self.mail, len(messages))
+
+    def _no_key_hint(self) -> str:
+        """Ключ не найден — говорим, ГДЕ искали: гадать по одной строке лога невыносимо."""
+        cfg = getattr(self.ctx, "cfg", None)
+        files = []
+        try:
+            files = [str(path) for path in cfg.sources()]
+        except Exception:  # noqa: BLE001 — конфиг мог прийти из теста
+            pass
+        where = ", ".join(files) if files else "(файлы конфига неизвестны)"
+        override = ""
+        try:
+            if cfg.origin("mail.firstmail.api_key") == "config.local.yaml":
+                override = (
+                    " ВНИМАНИЕ: ключ mail.firstmail.api_key задан в config.local.yaml и"
+                    " перекрывает config.yaml — правь именно локальный файл."
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        return (
+            "не задан mail.firstmail.api_key (ключ из панели firstmail, /panel/api/keys/). "
+            f"Прочитаны: {where}.{override} "
+            "После правки конфига нажми «Перечитать конфиг» в интерфейсе или перезапусти "
+            "процесс — на лету файл не перечитывается. Ключ можно положить и в переменную "
+            "окружения FIRSTMAIL_API_KEY."
+        )
 
     async def close(self) -> None:
         return None

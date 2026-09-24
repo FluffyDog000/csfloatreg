@@ -104,7 +104,12 @@ class CsFloatPage(PageHelper):
             return  # Steam вернул нас сразу, форма логина не понадобилась
 
         steam = SteamLoginPage(target, self.ctx, name="steam")
-        success_markers = sel("csfloat.logged_in") + [f"url:{re.escape(self._host())}"]
+        # ВАЖНО: маркер привязан к хосту, а не к подстроке. URL страницы OpenID
+        # содержит return_to=https%3A%2F%2Fcsfloat.com%2F… — простое вхождение
+        # 'csfloat.com' срабатывало прямо на странице Steam, и бот решал, что вход
+        # уже состоялся, вместо того чтобы нажать Sign In.
+        host_marker = f"url:^https?://([^/?#]*\\.)?{re.escape(self._host())}([/?#]|$)"
+        success_markers = sel("csfloat.logged_in") + [host_marker]
         await steam.authorize(account, mafile, steam_time, success_markers)
 
         if target is not self.page:

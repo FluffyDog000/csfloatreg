@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import shutil
 import time
 from pathlib import Path
@@ -30,6 +31,9 @@ from bot.runner import Runner
 from bot.steam_guard import SteamTime
 
 STATIC = Path(__file__).resolve().parent / "static"
+
+#: Статусы, которые человек ставит сам. Остальные пишет только прогон.
+MANUAL_STATUSES = {"new", "done", "skipped", "error"}
 
 
 def mask_mail(mail: str) -> str:
@@ -195,18 +199,22 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
         runner = Runner(cfg, state.selectors, state.bundles, bindings=manager.bindings)
         state.runner = runner
 
-        only = payload.get("only") or None
+        # точечный запуск: галочки в таблице приходят списком logins,
+        # поле «только» — строкой only. Выбранные аккаунты идут независимо
+        # от статуса, иначе 'done' молча выкинул бы их из очереди.
+        only = payload.get("logins") or payload.get("only") or None
         limit = payload.get("limit") or None
+        force = bool(payload.get("force", bool(payload.get("logins"))))
 
         async def _job():
             try:
-                state.last_summary = await runner.run(only=only, limit=limit)
+                state.last_summary = await runner.run(only=only, limit=limit, force=force)
             except Exception as exc:  # noqa: BLE001
                 logging_setup.get_logger().exception("Прогон упал: %s", exc)
                 hub.publish("run", state="failed", error=str(exc))
 
         state.task = asyncio.create_task(_job())
-        return {"started": True}
+        return {"started": True, "logins": only if isinstance(only, list) else ([only] if only else [])}
 
     @app.post("/api/stop")
     async def api_stop():
@@ -267,6 +275,34 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
         return {"saved": saved, "state": state.snapshot()}
 
     # ── конфиги ──────────────────────────────────────────────
+    @app.post("/api/config/reload")
+    async def api_config_reload():
+        """Перечитать config.yaml + config.local.yaml в живой объект настроек.
+
+        Без этого правка ключа или таймаутов доходила до бота только перезапуском
+        процесса, а сообщение об ошибке при этом выглядело как «я же вписал».
+        """
+        try:
+            cfg.reload()
+        except Exception as exc:  # noqa: BLE001 — текст нужен в интерфейсе
+            raise HTTPException(400, f"конфиг не читается: {exc}") from None
+        state.reload_inputs()
+        manager.reload_inputs()
+        key_set = bool(cfg.get("mail.firstmail.api_key") or os.getenv("FIRSTMAIL_API_KEY"))
+        sources = [str(path.name) for path in cfg.sources()]
+        hub.publish(
+            "log", level="INFO",
+            text=f"Конфиг перечитан ({', '.join(sources)}), ключ firstmail: "
+                 + ("задан" if key_set else "НЕ ЗАДАН"),
+        )
+        return {
+            "sources": [str(path) for path in cfg.sources()],
+            "mail_key": key_set,
+            "mail_key_from": cfg.origin("mail.firstmail.api_key"),
+            "provider": cfg.get("mail.provider"),
+            "state": state.snapshot(),
+        }
+
     @app.get("/api/config/{name}")
     async def api_config_get(name: str):
         path = _config_path(name)
@@ -299,6 +335,14 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     def _config_path(name: str) -> Path:
         if name == "config":
             return cfg.path or (cfg.root / "config.yaml")
+        if name == "local":
+            path = cfg.local_path(cfg.path or (cfg.root / "config.yaml"))
+            if not path.exists():
+                path.write_text(
+                    "# Личные настройки поверх config.yaml.\n"
+                    "mail:\n  firstmail:\n    api_key: \n", encoding="utf-8"
+                )
+            return path
         if name == "selectors":
             path = Path(state.selectors_path)
             return path if path.is_absolute() else cfg.root / path
@@ -327,20 +371,73 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
             raise HTTPException(404, "файл не найден")
         return FileResponse(target)
 
+    # ── ручная смена статуса ─────────────────────────────────
+    @app.post("/api/status")
+    async def api_set_status(payload: dict = Body(...)):
+        """Статус в results.csv ставит человек: пометить done, вернуть в new и т.д."""
+        logins = [str(x) for x in (payload.get("logins") or []) if str(x).strip()]
+        if not logins and payload.get("login"):
+            logins = [str(payload["login"])]
+        if not logins:
+            raise HTTPException(400, "не выбран ни один аккаунт")
+
+        status = str(payload.get("status") or "").strip()
+        if status not in MANUAL_STATUSES:
+            raise HTTPException(400, f"статус '{status}' менять вручную нельзя: {sorted(MANUAL_STATUSES)}")
+
+        modules = payload.get("modules") or cfg.get("run.modules") or ["registration"]
+        note = str(payload.get("note") or "поставлено вручную")
+        results = state.results_store()
+        known = {b.account.login.lower(): b.account.login for b in state.bundles}
+
+        changed = []
+        for login in logins:
+            real = known.get(login.lower())
+            if real is None:
+                continue
+            for module in modules:
+                await results.update(
+                    real, module, status=status, stage="", error="" if status != "error" else note, attempts=0
+                )
+            # менеджер профилей смотрит на те же аккаунты — держим пометки в согласии
+            if status in ("done", "new"):
+                manager.bindings.set_status(real, status)
+            changed.append(real)
+
+        if not changed:
+            raise HTTPException(404, "ни один из логинов не найден в accounts.txt")
+        hub.publish(
+            "log", level="INFO",
+            text=f"Статус '{status}' поставлен вручную: {', '.join(changed[:8])}"
+                 + (f" и ещё {len(changed) - 8}" if len(changed) > 8 else ""),
+        )
+        return {"changed": changed, "status": status, "state": state.snapshot()}
+
     # ── сброс статуса ────────────────────────────────────────
     @app.post("/api/reset")
     async def api_reset(payload: dict = Body(...)):
-        login = payload.get("login")
-        if not login:
+        logins = [str(x) for x in (payload.get("logins") or []) if str(x).strip()]
+        if not logins and payload.get("login"):
+            logins = [str(payload["login"])]
+        if not logins:
             raise HTTPException(400, "не указан login")
+
         results = state.results_store()
-        for module in cfg.get("run.modules") or ["registration"]:
-            await results.update(login, module, status="new", stage="", error="", attempts=0)
+        store = None
         if payload.get("forget_cookies"):
             from bot.storage import StateStore
 
-            StateStore(cfg.path_for("state"), cfg.path_for("profiles")).forget(login)
-        hub.publish("log", level="INFO", text=f"[{login}] статус сброшен")
+            store = StateStore(cfg.path_for("state"), cfg.path_for("profiles"))
+
+        for login in logins:
+            for module in cfg.get("run.modules") or ["registration"]:
+                await results.update(login, module, status="new", stage="", error="", attempts=0)
+            if store is not None:
+                if login in manager.sessions:
+                    raise HTTPException(400, f"[{login}] открыт ручной профиль — закрой его на вкладке «Профили»")
+                store.forget(login)          # отпечаток сохраняется
+            manager.bindings.set_status(login, "new")
+        hub.publish("log", level="INFO", text=f"Статус сброшен: {', '.join(logins[:8])}")
         return state.snapshot()
 
     # ═══ менеджер профилей (/profiles) ═══════════════════════

@@ -41,6 +41,7 @@ class Runner:
         self.debug = bool(cfg.get("run.debug", False))
 
         self._stop = asyncio.Event()
+        self.force = False
         self._consecutive_failures = 0
         self.stats: dict[str, int] = {}
 
@@ -54,7 +55,19 @@ class Runner:
         return self._stop.is_set()
 
     # ── прогон ───────────────────────────────────────────────
-    async def run(self, *, only: str | None = None, limit: int | None = None) -> dict:
+    async def run(
+        self,
+        *,
+        only: str | list[str] | None = None,
+        limit: int | None = None,
+        force: bool = False,
+    ) -> dict:
+        """only — логин или список логинов (точечный запуск).
+
+        force=True запускает выбранные аккаунты независимо от их статуса: человек
+        ткнул в конкретные строки, и пропускать их из-за 'done' было бы странно.
+        """
+        self.force = force
         queue = self._select(only, limit)
         if not queue:
             self.log.warning("Нечего делать: очередь пуста")
@@ -79,12 +92,13 @@ class Runner:
         self.hub.publish("run", state="finished", elapsed=elapsed, stats=self.stats)
         return {"total": len(queue), "elapsed": elapsed, "stats": self.stats}
 
-    def _select(self, only: str | None, limit: int | None) -> list[Bundle]:
-        skip = set(self.cfg.get("run.skip_statuses") or ["done"])
+    def _select(self, only: str | list[str] | None, limit: int | None) -> list[Bundle]:
+        skip = self._skip_statuses()
+        chosen = self._logins(only)
         queue: list[Bundle] = []
         for bundle in self.bundles:
             login = bundle.account.login
-            if only and login.lower() != only.lower():
+            if chosen and login.lower() not in chosen:
                 continue
             pending = [
                 module.name
@@ -98,6 +112,18 @@ class Runner:
             if limit and len(queue) >= limit:
                 break
         return queue
+
+    @staticmethod
+    def _logins(only: str | list[str] | None) -> set[str]:
+        if not only:
+            return set()
+        values = [only] if isinstance(only, str) else list(only)
+        return {str(v).strip().lower() for v in values if str(v).strip()}
+
+    def _skip_statuses(self) -> set[str]:
+        if getattr(self, "force", False):
+            return set()
+        return set(self.cfg.get("run.skip_statuses") or ["done"])
 
     async def _guarded(self, bundle: Bundle, semaphore: asyncio.Semaphore) -> None:
         async with semaphore:
@@ -116,7 +142,7 @@ class Runner:
         await asyncio.sleep(random.uniform(float(jitter[0]), float(jitter[1])))
 
         self.hub.publish("account", login=login, state="started")
-        skip = set(self.cfg.get("run.skip_statuses") or ["done"])
+        skip = self._skip_statuses()
 
         for module in self.modules:
             if self.stopping:

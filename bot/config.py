@@ -29,6 +29,7 @@ class Config:
         self._data = data
         self.path = path
         self.root = root or ROOT
+        self.local: dict | None = None      # содержимое config.local.yaml, если он есть
 
     # ── чтение ───────────────────────────────────────────────
     def get(self, dotted: str, default: Any = None) -> Any:
@@ -65,6 +66,19 @@ class Config:
             self.path_for(key).mkdir(parents=True, exist_ok=True)
 
     # ── загрузка/сохранение ──────────────────────────────────
+    @staticmethod
+    def local_path(path: Path) -> Path:
+        """config.local.yaml рядом с основным файлом."""
+        return path.with_name(path.stem + ".local" + path.suffix)
+
+    @staticmethod
+    def _read(path: Path) -> dict:
+        with path.open("r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+        if not isinstance(data, dict):
+            raise ConfigError(f"{path}: ожидался YAML-словарь")
+        return data
+
     @classmethod
     def load(cls, path: str | Path = "config.yaml", *, root: Path | None = None) -> "Config":
         root = root or ROOT
@@ -73,21 +87,41 @@ class Config:
             p = root / p
         if not p.exists():
             raise ConfigError(f"Не найден конфиг: {p}")
-        with p.open("r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh) or {}
-        if not isinstance(data, dict):
-            raise ConfigError(f"{p}: ожидался YAML-словарь")
 
+        cfg = cls({}, path=p, root=root)
+        cfg.reload()
+        return cfg
+
+    def reload(self) -> "Config":
+        """Перечитать файлы в тот же объект: ссылки на cfg по коду остаются живыми."""
+        if self.path is None:
+            return self
+        data = self._read(self.path)
+        self.local = None
         # config.local.yaml перекрывает config.yaml и не лежит в репозитории:
         # так личные правки переживают git pull и ничего не конфликтует
-        local = p.with_name(p.stem + ".local" + p.suffix)
+        local = self.local_path(self.path)
         if local.exists():
-            with local.open("r", encoding="utf-8") as fh:
-                overrides = yaml.safe_load(fh) or {}
-            if not isinstance(overrides, dict):
-                raise ConfigError(f"{local}: ожидался YAML-словарь")
-            data = _deep_merge(data, overrides)
-        return cls(data, path=p, root=root)
+            self.local = self._read(local)
+            data = _deep_merge(data, self.local)
+        self._data = data
+        return self
+
+    def sources(self) -> list[Path]:
+        """Файлы, из которых собрано текущее содержимое."""
+        if self.path is None:
+            return []
+        local = self.local_path(self.path)
+        return [self.path] + ([local] if local.exists() else [])
+
+    def origin(self, dotted: str) -> str:
+        """Откуда взялось значение: из config.local.yaml или из основного файла."""
+        node = self.local
+        for part in dotted.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return "config.yaml"
+            node = node[part]
+        return "config.local.yaml"
 
     def apply_cli(self, args) -> "Config":
         """CLI перекрывает yaml. Пустые/None значения игнорируются."""
