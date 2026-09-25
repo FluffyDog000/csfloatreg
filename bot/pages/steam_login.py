@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from ..errors import (
     BadCredentials,
@@ -60,13 +61,67 @@ class SteamLoginPage(PageHelper):
 
         if state == "confirm":
             self.log.info("Steam помнит аккаунт — подтверждаю вход")
-            await self.click(sel("steam.openid_signin_button"), "кнопку подтверждения входа")
-            await self.settle(2.5)
+            await self._confirm_openid(sel("steam.openid_signin_button"))
             return
 
         await self.perform(account, mafile, steam_time, success_markers)
         await self.click(
             sel("steam.openid_signin_button", required=False), "подтверждение OpenID", optional=True
+        )
+
+    async def _confirm_openid(self, candidates: list[str]) -> None:
+        """Жмём Sign In и проверяем, что страница действительно ушла.
+
+        Кнопка — это input[type=submit] внутри формы: обычный клик по ней иногда
+        не доходит (перекрытие, фокус, ранний клик до готовности формы), и тогда
+        бот уходил дальше с ощущением, что всё сделано. Поэтому проверяем URL и,
+        если остались на месте, дожимаем форму её же средствами.
+        """
+        before = self.page.url
+        await self.click(candidates, "кнопку подтверждения входа")
+        if await self._left_openid(before, seconds=8):
+            return
+
+        self.log.warning("После клика всё ещё на странице OpenID — отправляю форму напрямую")
+        for attempt in (self._press_enter, self._submit_form):
+            try:
+                await attempt(candidates)
+            except Exception as exc:  # noqa: BLE001 — запасные пути не обязаны срабатывать
+                self.log.debug("Запасной способ не сработал: %s", exc)
+                continue
+            if await self._left_openid(before, seconds=8):
+                self.log.info("Форма OpenID отправлена запасным способом")
+                return
+
+        raise UnexpectedState(
+            "Steam не реагирует на кнопку Sign In: страница OpenID не сменилась. "
+            f"URL: {self.page.url[:120]}"
+        )
+
+    async def _left_openid(self, before: str, *, seconds: float) -> bool:
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            url = self.page.url
+            if "/openid" not in url or url != before:
+                await self.settle(1.5)
+                return "/openid" not in self.page.url
+            await asyncio.sleep(0.4)
+        return False
+
+    async def _press_enter(self, candidates: list[str]) -> None:
+        locator = await self.first_visible(candidates, timeout=3)
+        if locator is None:
+            raise StepTimeout("кнопка подтверждения пропала")
+        await locator.press("Enter")
+
+    async def _submit_form(self, candidates: list[str]) -> None:
+        await self.page.evaluate(
+            """() => {
+                const button = document.querySelector('#imageLogin, input[type=submit], button[type=submit]');
+                if (button) { button.click(); return; }
+                const form = document.querySelector('#openidForm, form[action*=openid], form');
+                if (form) form.submit();
+            }"""
         )
 
     async def perform(self, account, mafile, steam_time, success_markers: list[str]) -> None:

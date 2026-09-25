@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from urllib.parse import urlparse
 
 from ..errors import StepTimeout, UnexpectedState
 from .base import PageHelper
@@ -38,9 +39,21 @@ class CsFloatPage(PageHelper):
         await self.click(self.ctx.sel("csfloat.cookie_accept", required=False), "баннер cookies", optional=True)
         await self.check_captcha("csfloat_home")
 
+    def _on_csfloat(self) -> bool:
+        """Мы вообще на csfloat? На странице Steam её маркеры ничего не значат."""
+        host = urlparse(self.page.url).hostname or ""
+        target = self._host().lower()
+        return host.lower() == target or host.lower().endswith("." + target)
+
     async def is_logged_in(self, *, timeout: int = 1500) -> bool:
         """Мгновенный срез. В циклах ожидания зови с маленьким timeout —
-        иначе каждая итерация стоит timeout × число кандидатов."""
+        иначе каждая итерация стоит timeout × число кандидатов.
+
+        Проверка привязана к хосту: аватарка на странице Steam — это аватарка
+        Steam, а не признак того, что CSFloat нас пустил.
+        """
+        if not self._on_csfloat():
+            return False
         for candidate in self.ctx.sel("csfloat.logged_in"):
             if await self.matches(candidate, timeout=timeout):
                 return True
@@ -50,7 +63,9 @@ class CsFloatPage(PageHelper):
         """CSFloat — SPA: аватар после редиректа появляется не мгновенно."""
         markers = self.ctx.sel("csfloat.logged_in")
         dom = [m for m in markers if not m.startswith("url:")]
-        if dom and await self.first_visible(dom, timeout=timeout) is not None:
+        # DOM-маркеры считаем только на самом csfloat: на странице Steam
+        # своя аватарка, и она когда-то уже сходила за «мы вошли»
+        if dom and self._on_csfloat() and await self.first_visible(dom, timeout=timeout) is not None:
             return True
         for candidate in markers:
             if candidate.startswith("url:") and await self.matches(candidate):
@@ -124,10 +139,12 @@ class CsFloatPage(PageHelper):
     async def _resolve_steam_page(self, popup: list):
         """Steam может открыться в новой вкладке, в текущей — или не открыться вовсе."""
         sel = self.ctx.sel
-        for _ in range(24):
+        for attempt in range(24):
             if await self.is_logged_in(timeout=250):
-                self.log.info("Steam авторизовал сразу, без формы логина")
+                self.log.info("Steam авторизовал сразу, без формы логина (%s)", self.page.url[:90])
                 return None
+            if attempt in (0, 6, 12, 18):
+                self.log.info("Жду страницу Steam, сейчас: %s", self.page.url[:110])
             if popup:
                 page = popup[-1]
                 try:
