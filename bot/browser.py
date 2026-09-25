@@ -39,6 +39,13 @@ _TELEMETRY_MARKERS = (
     "/beacon",
 )
 
+#: Как Steam называет языки в своей cookie Steam_Language.
+_STEAM_LANGUAGES = {
+    "en": "english", "ru": "russian", "es": "spanish", "fr": "french",
+    "de": "german", "pt": "portuguese", "pl": "polish", "tr": "turkish",
+    "it": "italian", "uk": "ukrainian",
+}
+
 _STEALTH_JS = """
 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
 window.chrome = window.chrome || {runtime: {}};
@@ -147,7 +154,34 @@ class BrowserSession:
         except Exception as exc:  # noqa: BLE001
             await self.close()
             raise classify_launch_error(exc, engine) from exc
+
+        if self._persistent is not None:
+            await self.force_site_language(self._persistent)
         return self
+
+    async def force_site_language(self, context) -> None:
+        """Явно просим Steam говорить на нужном языке.
+
+        Accept-Language сайты слушают не всегда: Steam помнит выбор в своей
+        cookie. Испанский прокси — и интерфейс на испанском, а селекторы у нас
+        по английскому тексту. Одна cookie снимает весь класс этих поломок.
+        """
+        if not self.cfg.get("browser.force_site_language", True):
+            return
+        language = str(self.cfg.get("browser.force_language") or self.cfg.get("browser.locale") or "en-US")
+        steam_name = _STEAM_LANGUAGES.get(language.split("-")[0].lower())
+        if not steam_name:
+            self.log.debug("Для языка %s нет имени в Steam — cookie не ставлю", language)
+            return
+        cookies = [
+            {"name": "Steam_Language", "value": steam_name, "domain": domain, "path": "/"}
+            for domain in (".steamcommunity.com", ".steampowered.com")
+        ]
+        try:
+            await context.add_cookies(cookies)
+            self.log.debug("Язык сайтов Steam закреплён: %s", steam_name)
+        except Exception as exc:  # noqa: BLE001 — не повод останавливать запуск
+            self.log.debug("Не удалось поставить cookie языка: %s", exc)
 
     def _headless_mode(self):
         """На Linux без DISPLAY headful возможен только через Xvfb."""
@@ -257,9 +291,17 @@ class BrowserSession:
             options["firefox_user_prefs"] = dict(prefs)
             self.log.info("Настройки Firefox применены: %s", ", ".join(f"{k}={v}" for k, v in prefs.items()))
 
-        locale = self.cfg.get("browser.locale")
-        if locale and not options["geoip"]:
-            options["locale"] = locale
+        # geoip подгоняет под IP и таймзону, и язык. Испанский прокси = испанский
+        # Steam, а селекторы у нас по английскому тексту. Язык закрепляем, часовой
+        # пояс и координаты по-прежнему считает geoip: браузер с испанским IP и
+        # английским интерфейсом — обычное дело, а вот московское время на нём — нет.
+        forced = self.cfg.get("browser.force_language") or self.cfg.get("browser.locale")
+        if forced:
+            options["locale"] = str(forced)
+            if options["geoip"]:
+                self.log.debug("Язык интерфейса закреплён: %s (гео берётся из geoip)", forced)
+        elif self.cfg.get("browser.locale") and not options["geoip"]:
+            options["locale"] = self.cfg.get("browser.locale")
 
         if self.cfg.get("browser.disable_ublock", False):
             try:
@@ -272,7 +314,7 @@ class BrowserSession:
 
         fingerprint = await self._fingerprint()
         if fingerprint:
-            options["config"] = fingerprint
+            options["config"] = {**fingerprint, **self._language_config()}
 
         if self.persistent:
             profile = self.state.profile(self.login)
@@ -305,12 +347,30 @@ class BrowserSession:
         else:
             self.browser = target
 
+    def _language_config(self) -> dict:
+        """Ключи фингерпринта, отвечающие за язык. Пустой словарь — не трогаем."""
+        forced = self.cfg.get("browser.force_language") or self.cfg.get("browser.locale")
+        if not forced:
+            return {}
+        language = str(forced)
+        short = language.split("-")[0]
+        return {
+            "locale:language": short,
+            "locale:region": language.split("-")[1] if "-" in language else short.upper(),
+            "navigator.language": language,
+            "navigator.languages": [language, short],
+            "headers.Accept-Language": f"{language},{short};q=0.9",
+        }
+
     async def _start_playwright(self, engine: str, proxy_cfg: dict) -> None:
         from playwright.async_api import async_playwright
 
         self._playwright = await async_playwright().start()
         launcher = getattr(self._playwright, "chromium" if engine == "chromium" else "firefox")
         options = {"headless": not self.headful, "proxy": proxy_cfg}
+        forced = self.cfg.get("browser.force_language") or self.cfg.get("browser.locale")
+        if forced:
+            options["locale"] = str(forced)
         if self.cfg.get("browser.executable_path"):
             options["executable_path"] = self.cfg.get("browser.executable_path")
         if engine != "chromium" and self.cfg.get("browser.firefox_prefs"):
@@ -352,6 +412,7 @@ class BrowserSession:
         if engine != "camoufox":
             await context.add_init_script(_STEALTH_JS)
 
+        await self.force_site_language(context)
         self._contexts[name] = context
         return context
 

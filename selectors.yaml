@@ -25,6 +25,11 @@ steam:
     - "a:has-text('Sign in with account name')"
     - "button:has-text('Войти, указав имя аккаунта')"
     - "text=Sign in with account name"
+    # язык мы закрепляем (browser.force_language), но если страница всё же
+    # переведена прокси-регионом — держим запасные подписи
+    - "button:has-text('Iniciar sesión con el nombre de la cuenta')"
+    - "button:has-text('Se connecter avec le nom du compte')"
+    - "button:has-text('Mit Kontonamen anmelden')"
     - "[class*='SignInWithPassword'] button"
   # Ссылка «ввести код вместо подтверждения в приложении»
   use_code_instead:
@@ -35,6 +40,9 @@ steam:
     - "button:has-text('Ввести код')"
     - "a:has-text('Ввести код')"
     - "text=Enter a code instead"
+    - "button:has-text('Introducir un código')"
+    - "button:has-text('Saisir un code')"
+    - "button:has-text('Stattdessen einen Code eingeben')"
   # Новый логин Steam: 5 отдельных полей по одному символу
   guard_boxes:
     - "input[maxlength='1']"
@@ -76,6 +84,8 @@ steam:
     - "a:has-text('Create New URL')"
     - "button:has-text('Create New URL')"
     - "a:has-text('Создать новый URL')"
+    - "a:has-text('Crear nueva URL')"
+    - "a:has-text('Créer une nouvelle URL')"
   openid_page:
     - "url:steamcommunity\\.com/openid"
     - "url:steamcommunity\\.com/login"

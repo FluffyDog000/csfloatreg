@@ -37,7 +37,12 @@ browser:
   pin_fingerprint: true      # закрепить отпечаток за аккаунтом: seed'ы canvas/audio/fonts не меняются
   os: [windows]              # какие ОС подделывать (camoufox)
   humanize: true             # человекоподобные движения курсора
-  geoip: true                # подгон locale/timezone под IP прокси
+  geoip: true                # таймзона и координаты по IP прокси
+  force_language: en-US      # язык интерфейса НЕЗАВИСИМО от страны прокси.
+                             # Прокси из Испании переводил Steam на испанский, и
+                             # селекторы по английскому тексту переставали совпадать.
+                             # null — отдать язык на откуп geoip
+  force_site_language: true  # плюс cookie Steam_Language: Accept-Language Steam слушает не всегда
   block_images: true         # быстрее и дешевле по трафику прокси (в ручном режиме картинки не режутся)
   start_url: https://csfloat.com    # что открыть при запуске профиля вручную (null — пустая вкладка)
   locale: en-US              # ВАЖНО: en-US => папка "Junk Email" в Outlook
