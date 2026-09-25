@@ -298,6 +298,15 @@ Steam требует действий от обеих сторон, и бот д
 * `browser.persistent_profile: true` — Camoufox запускается с `user_data_dir =
   profiles/<login>`. Сохраняется весь профиль Firefox: cookies, localStorage, IndexedDB,
   service workers, кеш, история.
+* `browser.force_language: en-US` — **язык интерфейса не зависит от страны прокси.**
+  Прокси из Испании или Франции переводили Steam на местный язык, и селекторы по
+  английскому тексту переставали совпадать. Теперь язык закреплён в отпечатке
+  (`navigator.language`, `Accept-Language`), а таймзону и координаты по-прежнему считает
+  `geoip`: браузер с испанским IP и английским интерфейсом выглядит обычно, а вот
+  московское время на испанском IP — нет. Дополнительно ставится cookie
+  `Steam_Language` (`browser.force_site_language`) — Accept-Language Steam слушает не
+  всегда. Если страницу всё же перевели, у ключевых кнопок в `selectors.yaml` есть
+  испанские, французские и немецкие подписи.
 * `browser.pin_fingerprint: true` — отпечаток генерируется один раз и закрепляется в
   `state/<login>.fp.json`. Без этого Camoufox на каждом запуске выдаёт новые seed'ы
   `canvas`, `audio` и `fonts:spacing`, и аккаунт с живыми cookies всё равно выглядит
