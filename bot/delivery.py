@@ -251,6 +251,9 @@ class Delivery:
         opened_here = login not in self.manager.sessions
         try:
             try:
+                # заодно будит cookie sessionid: она живёт до закрытия браузера,
+                # и в свежем профиле её нет, пока не открыта страница Steam
+                await self._ensure_session(login, headful=headful)
                 return await self._accept_once(login, offer_id, sender_steam_id, headful=headful)
             except SessionExpired as exc:
                 self.log.warning("[%s] %s — вхожу в Steam заново", login, exc)

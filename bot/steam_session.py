@@ -37,8 +37,10 @@ async def whoami(page, *, timeout_ms: int) -> str:
 async def ensure_login(manager, login: str, *, headful: bool | None = None, force: bool = False) -> dict:
     """Гарантирует живую сессию Steam в профиле аккаунта.
 
-    force=True — входить, не спрашивая: так вызывают после отказа Steam, когда
-    проверять состояние уже поздно.
+    Проверяем всегда, даже когда просят войти заново: /my/ отвечает правдой, а
+    вход на живой сессии — это тупик. Steam перекидывает со страницы входа
+    прямо в профиль, формы нет, и бот застревал, заполняя несуществующие поля.
+    force здесь означает «перепроверь», а не «жми вслепую».
     """
     account = manager.accounts.get(login)
     if account is None:
@@ -51,17 +53,18 @@ async def ensure_login(manager, login: str, *, headful: bool | None = None, forc
     page = await session.page(PAGE)
     timeout = int(manager.cfg.get("timeouts.page_load_ms", 60000))
 
-    if not force:
-        url = await whoami(page, timeout_ms=timeout)
-        if not on_login_page(url):
-            log.info("Steam помнит аккаунт: %s", url[:90])
-            return {"logged_in": True, "relogin": False, "url": url}
-        log.warning("Сессия Steam истекла — вхожу заново")
-    else:
-        log.info("Вхожу в Steam заново")
+    url = await whoami(page, timeout_ms=timeout)
+    if not on_login_page(url):
+        log.info("Steam помнит аккаунт%s: %s", " (вход не понадобился)" if force else "", url[:90])
+        return {"logged_in": True, "relogin": False, "url": url}
+    log.warning("Сессия Steam истекла — вхожу заново")
 
     await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=timeout)
     helper = SteamLoginPage(page, manager.page_context(login, session, log), name="steam")
+    if not on_login_page(page.url) and await helper.first_visible(helper.ctx.sel("steam.username"), timeout=3) is None:
+        # пока шли, Steam передумал и увёл в профиль: сессия всё-таки жива
+        log.info("Steam увёл со страницы входа сам: %s", page.url[:90])
+        return {"logged_in": True, "relogin": False, "url": page.url}
     await helper.perform(account, manager.mafiles.get(login.lower()), manager.steam_time, SUCCESS_MARKERS)
 
     url = await whoami(page, timeout_ms=timeout)
