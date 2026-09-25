@@ -89,13 +89,26 @@ def _looks_like_login(body: str) -> bool:
     return "steamcommunity.com/login" in low or ("login" in low and "<html" in low[:200])
 
 
-def _json(body: str, what: str):
+def _json(body: str, what: str, *, status: int | None = None) -> dict:
+    """Ответ Steam словарём. Всё остальное — ошибка с текстом, а не падение.
+
+    Steam умеет отвечать литералом null: это валидный JSON, но не словарь, и
+    обращение к .get на нём роняло рассылку трейсбеком вместо внятной причины.
+    """
     try:
-        return json.loads(body)
+        payload = json.loads(body)
     except ValueError:
         if _looks_like_login(body):
             raise SessionExpired(f"{what}: Steam просит войти заново — сессия профиля истекла") from None
         raise TradeError(f"{what}: Steam ответил не JSON ({' '.join(body.split())[:160]})") from None
+
+    if isinstance(payload, dict):
+        return payload
+    where = f" HTTP {status}," if status is not None else ""
+    raise TradeError(
+        f"{what}: Steam ответил «{json.dumps(payload)[:60]}» вместо данных ({where.strip(',')} "
+        f"тело {len(body)} символов)"
+    )
 
 
 async def session_id(context) -> str:
@@ -112,7 +125,7 @@ async def fetch_inventory(
     """Инвентарь: только предметы, которые можно передать."""
     url = f"{BASE}/inventory/{steam_id}/{app_id}/{context_id}?l=english&count=2000"
     response = await request.get(url, headers=HEADERS, timeout=timeout_ms)
-    payload = _json(await response.text(), "инвентарь")
+    payload = _json(await response.text(), "инвентарь", status=response.status)
     if not payload or payload.get("success") in (False, 0):
         raise TradeError(f"инвентарь недоступен: {str(payload)[:160]}")
 
@@ -167,7 +180,7 @@ async def escrow_days(request, partner: TradePartner, *, timeout_ms: int = 20000
     url = f"{BASE}/tradeoffer/new/getuserdetails/?partner={partner.account_id}&token={partner.token}"
     try:
         response = await request.get(url, headers={**HEADERS, "Referer": partner.referer}, timeout=timeout_ms)
-        payload = _json(await response.text(), "проверка заморозки")
+        payload = _json(await response.text(), "проверка заморозки", status=response.status)
     except TradeError:
         return None
     them = payload.get("them") or {}
@@ -203,13 +216,32 @@ async def send_offer(
         "captcha": "",
         "trade_offer_create_params": json.dumps({"trade_offer_access_token": partner.token}),
     }
+    # живой человек сначала открывает страницу обмена, и Steam это учитывает:
+    # без захода на неё он умеет отвечать пустым null вместо ответа
+    blocker = await trade_page_problem(request, partner, timeout_ms=timeout_ms)
+    if blocker:
+        raise TradeError(f"страница обмена сообщает: {blocker}")
+
     response = await request.post(
         f"{BASE}/tradeoffer/new/send",
         form=form,
         headers={**HEADERS, "Referer": partner.referer},
         timeout=timeout_ms,
     )
-    payload = _json(await response.text(), "отправка обмена")
+    body = await response.text()
+    try:
+        payload = _json(body, "отправка обмена", status=response.status)
+    except SessionExpired:
+        raise                       # протухшую сессию не маскируем догадками
+    except TradeError as exc:
+        hint = await trade_page_problem(request, partner, timeout_ms=timeout_ms)
+        if not hint:
+            hint = (
+                "обычно так отвечают, когда аккаунту закрыты обмены: торговый бан, "
+                "недавняя смена пароля, мобильный аутентификатор младше 7 дней — "
+                "или трейд-ссылка чужая"
+            )
+        raise TradeError(f"{exc}. {hint}") from None
     if payload.get("strError"):
         raise TradeError(f"Steam отказал: {payload['strError']}")
     offer_id = str(payload.get("tradeofferid") or "")
@@ -238,7 +270,7 @@ async def accept_offer(
         headers={**HEADERS, "Referer": f"{BASE}/tradeoffer/{offer_id}/"},
         timeout=timeout_ms,
     )
-    payload = _json(await response.text(), "приём обмена")
+    payload = _json(await response.text(), "приём обмена", status=response.status)
     if payload.get("strError"):
         raise TradeError(f"Steam отказал в приёме: {payload['strError']}")
     return {
@@ -246,6 +278,42 @@ async def accept_offer(
         # Steam ставит этот флаг, когда предметы уходят в заморозку
         "escrow": bool(payload.get("needs_mobile_confirmation") or payload.get("needs_email_confirmation")),
     }
+
+
+#: Фразы, которыми страница обмена объясняет, почему обмен невозможен.
+_TRADE_BLOCKERS = (
+    "cannot trade",
+    "is not available to trade",
+    "unable to trade",
+    "trade ban",
+    "trade URL is no longer valid",
+    "profile is private",
+    "they have a trade ban",
+    "you have a trade ban",
+    "recently changed your password",
+    "Steam Guard",
+)
+
+
+async def trade_page_problem(request, partner: TradePartner, *, timeout_ms: int = 20000) -> str:
+    """Открывает страницу обмена и возвращает причину отказа, если она там есть.
+
+    Пустая строка — препятствий не видно. Ошибки чтения не мешают отправке:
+    это подсказка, а не проверка.
+    """
+    try:
+        response = await request.get(partner.referer, headers=HEADERS, timeout=timeout_ms)
+        text = await response.text()
+    except Exception:  # noqa: BLE001 — подсказка не обязана работать
+        return ""
+    if _looks_like_login(text):
+        return "Steam просит войти заново — сессия профиля истекла"
+    flat = " ".join(text.split())
+    for marker in _TRADE_BLOCKERS:
+        index = flat.lower().find(marker.lower())
+        if index >= 0:
+            return flat[max(0, index - 90) : index + 110].strip()
+    return ""
 
 
 _OFFER_IN_TEXT = re.compile(r"tradeofferid[_\"':= ]+(\d{6,})")
