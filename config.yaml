@@ -112,7 +112,9 @@ mail:
   provider: imap             # imap (по логину и паролю) | firstmail (API) | outlook_web (браузер)
 
   imap:
-    host: null               # null = подобрать: imap.<домен>, mail.<домен>, imap.firstmail.ltd
+    host: imap.firstmail.ltd # проверено: ящики firstmail (hypercubemail.com и прочие
+                             # их домены) обслуживает этот сервер.
+                             # null = подбирать: imap.<домен>, mail.<домен>, imap.firstmail.ltd
     port: 993
     ssl: true
     folders: [INBOX, Junk, Spam, Junk E-mail]   # где искать письмо

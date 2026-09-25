@@ -294,6 +294,13 @@ def run_mail_probe(args) -> int:
         print(f"    host: {imap_ok if imap_ok != host_candidates(mail, imap_cfg)[0] else 'null'}")
         print(f"    port: {imap_cfg['port']}")
 
+    if imap_ok:
+        # HTTP-API не проверяем: он не нужен, а лишние запросы к WAF только
+        # приближают блокировку IP. Нужен — поставь mail.provider: firstmail.
+        print("\nHTTP-API не проверяю: почта работает по IMAP."
+              "\nЕсли API всё-таки нужен, поставь mail.provider: firstmail и повтори.")
+        return 0
+
     # ── 1. спецификация ──────────────────────────────────────
     print("\n1) Ищу спецификацию API:")
     found_spec = False

@@ -71,7 +71,7 @@ python main.py --check
 mail:
   provider: imap
   imap:
-    host: null        # null = подобрать: imap.<домен>, mail.<домен>, imap.firstmail.ltd
+    host: imap.firstmail.ltd   # проверено на ящиках firstmail; null = подбирать по домену
     port: 993
     ssl: true
     folders: [INBOX, Junk, Spam, Junk E-mail]
@@ -89,7 +89,14 @@ mail:
 
 ### HTTP-API firstmail
 
-Письмо забирается запросом к API.
+Запасной путь, и по состоянию на 09.2026 нерабочий: `firstmail.ltd` закрыт JS-антиботом
+(скрипт получает заглушку вместо ответа), а `api.firstmail.ltd` отдаёт `403 Blocked` на
+уровне WAF — одинаково с браузерным и скриптовым User-Agent, с российского и
+зарубежного IP. Это не чинится настройками, поэтому по умолчанию включён IMAP.
+Разведка (`--mail-probe`) проверяет API только если IMAP не работает — чтобы лишний раз
+не стучаться в WAF.
+
+Если API когда-нибудь откроют: письмо забирается запросом к нему.
 
 **Сами ящики** — в `mails.txt`, по строке на ящик, ровно в том виде, в каком их отдаёт
 firstmail:
