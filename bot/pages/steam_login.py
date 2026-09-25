@@ -59,6 +59,12 @@ class SteamLoginPage(PageHelper):
             self.log.info("Steam уже авторизован, подтверждение не требуется")
             return
 
+        if state == "confirm" and await self.first_visible(sel("steam.username"), timeout=2):
+            # на странице есть поле логина — значит это обычная форма входа,
+            # а не подтверждение уже живой сессии
+            self.log.info("Рядом с кнопкой есть поле логина — это форма входа, а не подтверждение")
+            state = "credentials"
+
         if state == "confirm":
             self.log.info("Steam помнит аккаунт — подтверждаю вход")
             await self._confirm_openid(sel("steam.openid_signin_button"))
