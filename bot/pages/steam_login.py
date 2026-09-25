@@ -84,25 +84,92 @@ class SteamLoginPage(PageHelper):
         если остались на месте, дожимаем форму её же средствами.
         """
         before = self.page.url
-        await self.click(candidates, "кнопку подтверждения входа")
-        if await self._left_openid(before, seconds=8):
-            return
+        await self._describe_button(candidates)
 
-        self.log.warning("После клика всё ещё на странице OpenID — отправляю форму напрямую")
-        for attempt in (self._press_enter, self._submit_form):
+        ways = (
+            ("обычный клик", self._plain_click),
+            ("клик с force", self._force_click),
+            ("событие click", self._dispatch_click),
+            ("Enter на кнопке", self._press_enter),
+            ("отправка формы", self._submit_form),
+        )
+        for title, attempt in ways:
             try:
                 await attempt(candidates)
-            except Exception as exc:  # noqa: BLE001 — запасные пути не обязаны срабатывать
-                self.log.debug("Запасной способ не сработал: %s", exc)
+            except Exception as exc:  # noqa: BLE001 — на то они и запасные пути
+                self.log.warning("Способ «%s» не сработал: %s", title, str(exc).splitlines()[0][:120])
                 continue
             if await self._left_openid(before, seconds=8):
-                self.log.info("Форма OpenID отправлена запасным способом")
+                self.log.info("Вход подтверждён (%s)", title)
                 return
+            self.log.warning("Способ «%s» ничего не изменил, URL прежний", title)
 
         raise UnexpectedState(
-            "Steam не реагирует на кнопку Sign In: страница OpenID не сменилась. "
+            "Steam не реагирует на кнопку Sign In ни одним из способов. "
             f"URL: {self.page.url[:120]}"
         )
+
+    async def _describe_button(self, candidates: list[str]) -> None:
+        """Пишет в лог, что именно бот считает кнопкой. Без этого «не нажимает»
+        невозможно отличить от «нажимает не туда»."""
+        self.log.info("Страница перед подтверждением: %s | %s", self.page.url[:110], await self._title())
+        for candidate in candidates:
+            try:
+                locator = self.page.locator(candidate)
+                count = await locator.count()
+            except Exception as exc:  # noqa: BLE001
+                self.log.info("  %-46s ошибка селектора: %s", candidate, str(exc)[:60])
+                continue
+            if not count:
+                self.log.info("  %-46s не найдено", candidate)
+                continue
+            try:
+                info = await locator.first.evaluate(
+                    """el => {
+                        const r = el.getBoundingClientRect();
+                        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+                        const top = document.elementFromPoint(cx, cy);
+                        return {
+                            tag: el.tagName, id: el.id, cls: el.className, value: el.value || '',
+                            box: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+                            disabled: !!el.disabled,
+                            covered: top !== el && !el.contains(top),
+                            coveredBy: top ? (top.tagName + '.' + (top.className || '')).slice(0, 40) : '',
+                        };
+                    }"""
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.log.info("  %-46s найдено (%d), детали недоступны: %s", candidate, count, str(exc)[:60])
+                continue
+            self.log.info(
+                "  %-46s найдено %d: <%s id=%s value=%r> бокс %s%s%s",
+                candidate, count, info["tag"].lower(), info["id"] or "—", info["value"], info["box"],
+                ", ВЫКЛЮЧЕНА" if info["disabled"] else "",
+                f", ПЕРЕКРЫТА {info['coveredBy']}" if info["covered"] else "",
+            )
+
+    async def _title(self) -> str:
+        try:
+            return (await self.page.title())[:60]
+        except Exception:  # noqa: BLE001
+            return "?"
+
+    async def _plain_click(self, candidates: list[str]) -> None:
+        await self.click(candidates, "кнопку подтверждения входа")
+
+    async def _force_click(self, candidates: list[str]) -> None:
+        locator = await self._button(candidates)
+        await locator.click(force=True, timeout=5000)
+
+    async def _dispatch_click(self, candidates: list[str]) -> None:
+        locator = await self._button(candidates)
+        await locator.dispatch_event("click")
+
+    async def _button(self, candidates: list[str]):
+        locator = await self.first_visible(candidates, timeout=3)
+        if locator is None:
+            raise StepTimeout("кнопка подтверждения пропала со страницы")
+        return locator
 
     async def _left_openid(self, before: str, *, seconds: float) -> bool:
         deadline = time.monotonic() + seconds
@@ -115,9 +182,7 @@ class SteamLoginPage(PageHelper):
         return False
 
     async def _press_enter(self, candidates: list[str]) -> None:
-        locator = await self.first_visible(candidates, timeout=3)
-        if locator is None:
-            raise StepTimeout("кнопка подтверждения пропала")
+        locator = await self._button(candidates)
         await locator.press("Enter")
 
     async def _submit_form(self, candidates: list[str]) -> None:
