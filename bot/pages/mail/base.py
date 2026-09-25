@@ -134,9 +134,9 @@ def register(name: str):
 
 
 def build_mail_provider(ctx):
-    from . import firstmail_api, outlook_web  # noqa: F401 — регистрация провайдеров
+    from . import firstmail_api, imap_box, outlook_web  # noqa: F401 — регистрация провайдеров
 
-    name = (ctx.cfg.get("mail.provider") or "firstmail").lower()
+    name = (ctx.cfg.get("mail.provider") or "imap").lower()
     provider = PROVIDERS.get(name)
     if provider is None:
         raise NotImplementedError(

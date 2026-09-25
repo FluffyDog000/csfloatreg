@@ -226,6 +226,16 @@ def run_mail_probe(args) -> int:
 
     mail = args.mail_probe or ""
     password = ""
+    if mail:
+        from bot.loader import load_mails
+
+        try:
+            for box in load_mails(cfg.path_for("mails")):
+                if box.address.lower() == mail.lower():
+                    password = box.password
+                    break
+        except Exception:  # noqa: BLE001 — файла может не быть, это не беда
+            pass
     if not mail:
         bundles = load_all(cfg)
         if args.only:
@@ -249,6 +259,40 @@ def run_mail_probe(args) -> int:
         f"\"{str(settings['base_url']).rstrip('/')}{settings.get('message_path')}"
         f"?{settings['username_param']}=<почта>&{settings['password_param']}=<пароль>\""
     )
+
+    # ── 0. IMAP: путь, который не зависит от антиботов и блокировок ──
+    import imaplib
+
+    from bot.pages.mail.imap_box import DEFAULTS as IMAP_DEFAULTS
+    from bot.pages.mail.imap_box import _Box, host_candidates
+
+    imap_cfg = {**IMAP_DEFAULTS, **(cfg.get("mail.imap") or {})}
+    print(f"\n0) IMAP (основной путь, пароль ящика {'есть' if password else 'НЕ НАЙДЕН в mails.txt'}):")
+    imap_ok = None
+    for host in host_candidates(mail, imap_cfg):
+        box = _Box(host, int(imap_cfg["port"]), bool(imap_cfg["ssl"]), float(imap_cfg["timeout_s"]))
+        try:
+            box.connect(mail, password)
+        except imaplib.IMAP4.error as exc:
+            print(f"  {host:<34} сервер ответил, логин отклонён: {str(exc)[:80]}")
+        except Exception as exc:  # noqa: BLE001 — диагностике трейсбек ни к чему
+            print(f"  {host:<34} нет связи: {str(exc)[:80]}")
+        else:
+            folders = box.folders()
+            inbox = len(box.uids("INBOX"))
+            print(f"  {host:<34} ВХОД ВЫПОЛНЕН · писем в INBOX: {inbox}")
+            print(f"       папки: {', '.join(folders[:12]) or '—'}")
+            imap_ok = host
+            box.close()
+            break
+        finally:
+            box.close()
+
+    if imap_ok:
+        print("\n  IMAP работает — этого достаточно, HTTP-API не нужен. В config.yaml:")
+        print("\nmail:\n  provider: imap\n  imap:")
+        print(f"    host: {imap_ok if imap_ok != host_candidates(mail, imap_cfg)[0] else 'null'}")
+        print(f"    port: {imap_cfg['port']}")
 
     # ── 1. спецификация ──────────────────────────────────────
     print("\n1) Ищу спецификацию API:")
@@ -299,15 +343,23 @@ def run_mail_probe(args) -> int:
     ]
 
     working = []
+    refused: dict[str, int] = {}
     for base, path in combos[:16]:
+        if refused.get(base, 0) >= 2:
+            continue        # хост уже дважды отшил — незачем его добивать
         url = f"{base}{path}?{query}"
         status, body = raw_get(url, auth(), timeout=20)
         flat = " ".join(body.split())
         kind = kind_of(body)
         if status == 200 and kind == "JSON":
             working.append((base, path))
+        elif kind == "АНТИБОТ" or status == 403:
+            refused[base] = refused.get(base, 0) + 1
         print(f"  {status or '—':<4} {kind:<10} {base}{path}")
         print(f"       {flat[:150]}")
+    for base, count in refused.items():
+        if count >= 2:
+            print(f"  … остальные адреса на {base} пропущены: он отвечает заглушкой или 403")
 
     # ── 3. проверка ключа на адресе, который отвечает JSON ───
     alive = working[0] if working else None

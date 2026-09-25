@@ -109,7 +109,16 @@ csfloat:
 mail:
   source: mails_file         # mails_file — почты из mails.txt (по умолчанию)
                              # accounts   — старый формат login:pass:mail:mailpassword
-  provider: firstmail        # firstmail (API) | outlook_web (браузер). Реализации в bot/pages/mail/
+  provider: imap             # imap (по логину и паролю) | firstmail (API) | outlook_web (браузер)
+
+  imap:
+    host: null               # null = подобрать: imap.<домен>, mail.<домен>, imap.firstmail.ltd
+    port: 993
+    ssl: true
+    folders: [INBOX, Junk, Spam, Junk E-mail]   # где искать письмо
+    timeout_s: 30
+    hosts: {}                # свой сервер под конкретный домен: {hypercubemail.com: imap.firstmail.ltd}
+
   check_junk: true           # outlook_web: заглядывать в «Нежелательная почта»
   base_url: https://outlook.live.com/mail/0/
   junk_url: https://outlook.live.com/mail/0/junkemail/
