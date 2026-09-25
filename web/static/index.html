@@ -164,6 +164,7 @@
             <button data-status="new" class="ghost">новый</button>
             <button data-status="done" class="ghost">готов</button>
             <button data-status="skipped" class="ghost">пропустить</button>
+            <button id="btnProxySelected" class="ghost">сменить прокси</button>
             <button id="btnResetSelected" class="ghost danger">сбросить + cookies</button>
             <div class="spacer"></div>
             <button id="btnSelNone" class="ghost">снять выделение</button>
@@ -471,6 +472,19 @@ document.querySelectorAll('#selBar [data-status]').forEach(btn => {
     setStatus(chosen, btn.dataset.status);
   };
 });
+$('#btnProxySelected').onclick = async () => {
+  const chosen = selectedLogins();
+  if (!chosen.length) return toast('Не выбран ни один аккаунт', true);
+  if (!confirm(`Сменить прокси у ${chosen.length} аккаунт(ов)? Текущие пометятся плохими и больше не выдадутся.`)) return;
+  try {
+    const res = await api('/api/m/replace-proxy', {method:'POST', body: JSON.stringify({logins: chosen})});
+    STATE = res.state; render();
+    const failed = res.failed || [];
+    toast(`Прокси заменены: ${res.done.length}` + (failed.length ? `, не вышло: ${failed.length}` : ''), !!failed.length);
+    failed.slice(0, 5).forEach(f => appendLog(`[${f.login}] прокси не заменён: ${f.error}`, 'WARNING'));
+  } catch (e) { toast(e.message, true); }
+};
+
 $('#btnResetSelected').onclick = async () => {
   const chosen = selectedLogins();
   if (!chosen.length) return toast('Не выбран ни один аккаунт', true);

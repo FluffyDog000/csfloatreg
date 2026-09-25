@@ -71,6 +71,53 @@ def attach_mailboxes(
     return {"source": "mails_file", "assigned": assigned, "missing": missing, "total": len(pool)}
 
 
+def attach_proxies(cfg, accounts: list[Account], *, bindings=None, pool=None, log=None) -> dict:
+    """Выдаёт каждому аккаунту его прокси из пула и возвращает {логин: Proxy}.
+
+    Привязка одна на весь бот: и ручной профиль, и очередь регистрации ходят
+    через один и тот же выход. Иначе кнопка «Сменить прокси» меняла бы что-то
+    одно, а прогон продолжал бы идти по-старому.
+    """
+    from .loader import load_proxies
+
+    log = log or get_logger()
+    if pool is None:
+        pool = load_proxies(cfg.path_for("proxies"), default_scheme=cfg.get("proxy.default_scheme", "http"))
+    if bindings is None:
+        bindings = BindingStore(cfg.path_for("data") / "bindings.json")
+
+    by_raw = {proxy.raw: proxy for proxy in pool}
+    raws = [proxy.raw for proxy in pool]
+    assigned, missing = 0, []
+    result: dict[str, object] = {}
+
+    for account in accounts:
+        current = bindings.proxy_of(account.login)
+        proxy = by_raw.get(current) if current else None
+        if proxy is not None and bindings.is_bad(proxy.raw):
+            proxy = None
+        if proxy is None:
+            free = bindings.free_proxy(raws)
+            if free is None:
+                missing.append(account.login)
+                continue
+            if current:
+                bindings.remember_history(account.login, current, "строка пропала из proxies.txt или помечена плохой")
+            bindings.bind(account.login, free)
+            proxy = by_raw[free]
+            assigned += 1
+        result[account.login] = proxy
+
+    if assigned:
+        log.info("Выдано прокси: %d", assigned)
+    if missing:
+        log.warning(
+            "Прокси не хватило на %d аккаунт(ов): %s%s",
+            len(missing), ", ".join(missing[:5]), " …" if len(missing) > 5 else "",
+        )
+    return result
+
+
 def mail_stats(bindings: BindingStore, pool: list[Mailbox]) -> dict:
     addresses = {box.address.lower() for box in pool}
     used = bindings.used_mails() & addresses

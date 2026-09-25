@@ -207,21 +207,32 @@ def load_mafiles(directory: Path) -> dict[str, MaFile]:
 
 # ── связывание ───────────────────────────────────────────────
 def build_bundles(
-    accounts: list[Account], proxies: list[Proxy], mafiles: dict[str, MaFile]
+    accounts: list[Account], proxies: list[Proxy] | dict[str, Proxy], mafiles: dict[str, MaFile]
 ) -> list[Bundle]:
-    """1 прокси = 1 аккаунт, привязка по порядку строк."""
-    if len(proxies) < len(accounts):
-        raise LoaderError(
-            f"Прокси меньше, чем аккаунтов: {len(proxies)} < {len(accounts)}. "
-            f"Правило '1 прокси = 1 аккаунт' нарушено — добавьте "
-            f"{len(accounts) - len(proxies)} строк в proxies.txt."
-        )
+    """Аккаунт + его прокси + его maFile.
+
+    Прокси приходят словарём {логин: Proxy} из привязок (data/bindings.json) —
+    один и тот же выход у ручного профиля и у очереди. Список поддерживается
+    для простых случаев и тестов: тогда раздаём по порядку строк.
+    """
+    if isinstance(proxies, dict):
+        by_login = proxies
+    else:
+        if len(proxies) < len(accounts):
+            raise LoaderError(
+                f"Прокси меньше, чем аккаунтов: {len(proxies)} < {len(accounts)}. "
+                f"Добавьте {len(accounts) - len(proxies)} строк в proxies.txt."
+            )
+        by_login = {account.login: proxy for account, proxy in zip(accounts, proxies)}
 
     bundles: list[Bundle] = []
-    for account, proxy in zip(accounts, proxies):
+    for account in accounts:
         mafile = mafiles.get(account.login.lower())
+        proxy = by_login.get(account.login)
         error = None
-        if mafile is None:
+        if proxy is None:
+            error = "аккаунту не досталось прокси: добавьте строк в proxies.txt"
+        elif mafile is None:
             error = f"maFile с account_name='{account.login}' не найден"
         elif not mafile.shared_secret:
             error = f"maFile {mafile.path.name if mafile.path else '?'} зашифрован (нет shared_secret)"
@@ -232,7 +243,7 @@ def build_bundles(
 def load_all(cfg, *, bindings=None) -> list[Bundle]:
     """bindings передаётся, когда в процессе уже есть открытое хранилище привязок:
     два экземпляра BindingStore затирали бы записи друг друга."""
-    from .mailbox import attach_mailboxes
+    from .mailbox import attach_mailboxes, attach_proxies
 
     accounts = load_accounts(cfg.path_for("accounts"))
     proxies = load_proxies(
@@ -240,4 +251,5 @@ def load_all(cfg, *, bindings=None) -> list[Bundle]:
     )
     mafiles = load_mafiles(cfg.path_for("mafiles"))
     attach_mailboxes(cfg, accounts, bindings=bindings)   # почта из mails.txt
-    return build_bundles(accounts, proxies, mafiles)
+    bound = attach_proxies(cfg, accounts, bindings=bindings, pool=proxies)
+    return build_bundles(accounts, bound, mafiles)

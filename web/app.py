@@ -531,7 +531,11 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
         logins = [str(x) for x in (payload.get("logins") or []) if str(x).strip()]
         if not logins:
             raise HTTPException(400, "не выбран ни один аккаунт")
-        return manager.replace_proxies(logins)
+        if state.running:
+            raise HTTPException(409, "идёт прогон: смена прокси на ходу оборвала бы аккаунт")
+        result = manager.replace_proxies(logins)
+        state.reload_inputs()        # очередь берёт прокси из тех же привязок
+        return {**result, "state": state.snapshot()}
 
     @app.post("/api/m/replace-proxy/{login}")
     async def m_replace_proxy(login: str):
