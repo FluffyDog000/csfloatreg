@@ -121,6 +121,19 @@ class ProfileManager:
         self.log.info("[%s] прокси заменён на %s", login, proxy.safe() if proxy else free)
         return {"proxy": proxy.safe() if proxy else free}
 
+    def replace_proxies(self, logins: list[str], *, mark_bad: bool = True) -> dict:
+        """Смена прокси пачкой. Один сломавшийся аккаунт не отменяет остальные."""
+        done, failed = [], []
+        for login in logins:
+            try:
+                result = self.replace_proxy(login, mark_bad=mark_bad)
+            except Exception as exc:  # noqa: BLE001 — причина нужна по каждому аккаунту
+                failed.append({"login": login, "error": str(exc)})
+            else:
+                done.append({"login": login, "proxy": result["proxy"]})
+        self.log.info("Прокси заменены: %d, не получилось: %d", len(done), len(failed))
+        return {"done": done, "failed": failed}
+
     def pool_stats(self) -> dict:
         used = self.bindings.used_proxies()
         bad = set(self.bindings.data["bad_proxies"])

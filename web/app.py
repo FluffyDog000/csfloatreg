@@ -525,6 +525,14 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     async def m_close(login: str):
         return await manager.close_profile(login)
 
+    @app.post("/api/m/replace-proxy")
+    async def m_replace_proxies(payload: dict = Body(default={})):
+        """Смена прокси на нескольких аккаунтах сразу."""
+        logins = [str(x) for x in (payload.get("logins") or []) if str(x).strip()]
+        if not logins:
+            raise HTTPException(400, "не выбран ни один аккаунт")
+        return manager.replace_proxies(logins)
+
     @app.post("/api/m/replace-proxy/{login}")
     async def m_replace_proxy(login: str):
         try:
