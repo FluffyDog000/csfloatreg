@@ -139,6 +139,8 @@ mail:
     username_param: username
     password_param: password
     timeout_s: 30
+    # WAF перед API отвечает 403 на «скриптовые» User-Agent — представляемся браузером
+    user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'
 
 captcha:
   solver: none               # none | (задел: anticaptcha, twocaptcha)

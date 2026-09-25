@@ -201,7 +201,7 @@ def run_mail_probe(args) -> int:
     способ её читать. Команда делает это с машины, у которой есть доступ.
     """
     from bot.pages.mail.firstmail_api import (
-        CANDIDATE_BASES, CANDIDATE_PATHS, DEFAULTS, KNOWN_OK_PATH, SPEC_URLS,
+        BROWSER_UA, CANDIDATE_BASES, CANDIDATE_PATHS, DEFAULTS, KNOWN_OK_PATH, SPEC_URLS,
         looks_like_antibot, raw_get, spec_summary,
     )
 
@@ -360,6 +360,19 @@ def run_mail_probe(args) -> int:
     for base, count in refused.items():
         if count >= 2:
             print(f"  … остальные адреса на {base} пропущены: он отвечает заглушкой или 403")
+
+    # ── 2.5 тот же адрес разными User-Agent ──────────────────
+    blocked = [c for c in combos[:16] if c[0].startswith("https://api.")]
+    if blocked and not working:
+        base, path = blocked[0]
+        print(f"\n2.5) Тот же адрес разными User-Agent ({base}{path}):")
+        for label, ua in (("браузерный", BROWSER_UA), ("скриптовый", "csfloatreg/1.0"), ("пустой", "")):
+            headers = dict(auth())
+            if ua:
+                headers["User-Agent"] = ua
+            status, body = raw_get(f"{base}{path}?{query}", headers, timeout=15)
+            print(f"  {status or '—':<4} {kind_of(body):<10} {label:<12} {' '.join(body.split())[:90]}")
+        print("  Если браузерный проходит, а скриптовый нет — дело в WAF, и он уже настроен в конфиге.")
 
     # ── 3. проверка ключа на адресе, который отвечает JSON ───
     alive = working[0] if working else None

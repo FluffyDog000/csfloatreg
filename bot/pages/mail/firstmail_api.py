@@ -36,6 +36,12 @@ DEFAULTS = {
     "username_param": "username",
     "password_param": "password",
     "timeout_s": 30,
+    # WAF перед api.firstmail.ltd отвечает 403 на запросы с «неизвестным»
+    # User-Agent, поэтому по умолчанию представляемся обычным браузером.
+    "user_agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+    ),
 }
 
 #: Поля, в которых API обычно держит идентификатор письма.
@@ -134,10 +140,17 @@ CANDIDATE_PATHS = (
 KNOWN_OK_PATH = "/domains/"
 
 
+#: Обычный браузерный User-Agent: WAF перед API режет всё непохожее на браузер.
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+)
+
+
 def raw_get(url: str, headers: dict | None = None, *, timeout: float = 20.0) -> tuple[int, str]:
     """Запрос без исключений: отдаёт код и тело как есть. Нужен разведке."""
     request = urllib.request.Request(
-        url, headers={"Accept": "application/json", "User-Agent": "csfloatreg/1.0", **(headers or {})},
+        url, headers={"Accept": "application/json", "User-Agent": BROWSER_UA, **(headers or {})},
         method="GET",
     )
     try:
@@ -348,7 +361,7 @@ class FirstMailProvider:
             headers={
                 auth_header: auth_value,
                 "Accept": "application/json",
-                "User-Agent": "csfloatreg/1.0",
+                "User-Agent": str(self.cfg.get("user_agent") or "Mozilla/5.0"),
             },
             method="GET",
         )
