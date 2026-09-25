@@ -25,11 +25,10 @@ from .base import extract_link, extract_token, register
 
 #: Значения по умолчанию. Всё это перекрывается секцией mail.firstmail в конфиге.
 DEFAULTS = {
-    # Ключ из панели (/panel/api/keys/) — это ключ ПАНЕЛЬНОГО API: он ходит
-    # с заголовком Authorization: Bearer и базой firstmail.ltd/api/v1.
-    # У сервиса есть и второй, «рыночный» API (api.firstmail.ltd/v1/market/…,
-    # заголовок X-API-KEY) — там нужен отдельный ключ.
-    "base_url": "https://firstmail.ltd/api/v1",
+    # firstmail.ltd закрыт JS-антиботом: curl и любой скрипт получают оттуда
+    # страницу-заглушку, а не API. Программно доступен только api.firstmail.ltd.
+    # Заголовок ключа подбирается сам: Bearer, а при отказе — X-API-KEY.
+    "base_url": "https://api.firstmail.ltd/v1",
     "message_path": "/market/get/message",
     "messages_path": None,
     "auth_header": "Authorization",
@@ -44,6 +43,14 @@ _ID_KEYS = ("id", "uid", "message_id", "messageId", "msg_id", "guid")
 
 #: Ключи, под которыми может лежать список писем.
 _LIST_KEYS = ("messages", "mails", "emails", "items", "data", "result", "results")
+
+
+#: Следы JS-заглушки, которую отдаёт антибот вместо ответа API.
+_ANTIBOT_MARKERS = ("__jhash_", "gorizontal-vertikal", "noindex, noarchive")
+
+
+def looks_like_antibot(body: str) -> bool:
+    return any(marker in body for marker in _ANTIBOT_MARKERS)
 
 
 class EndpointMissing(MailBadCredentials):
@@ -181,6 +188,7 @@ class FirstMailProvider:
         register_secret(self.api_key)
         self._seen: set[str] = set()
         self._path: str | None = None      # какой эндпоинт сработал
+        self._auth: tuple[str, str] | None = None   # какой заголовок ключа приняли
 
     # ── доступ ───────────────────────────────────────────────
     async def login(self) -> None:
@@ -292,7 +300,42 @@ class FirstMailProvider:
             return messages_of(payload)
         raise last_error or NetworkError("firstmail: не удалось получить письма")
 
+    def _auth_variants(self) -> list[tuple[str, str]]:
+        """Заголовок с ключом: настроенный, затем второй известный вариант.
+
+        У firstmail два API с разными схемами (Authorization: Bearer и
+        X-API-KEY), и какой ключ выдан — по самому ключу не видно. Дешевле
+        попробовать оба, чем заставлять человека угадывать.
+        """
+        if self._auth is not None:
+            return [self._auth]
+        header = str(self.cfg["auth_header"])
+        prefix = str(self.cfg.get("auth_prefix") or "")
+        primary = (header, f"{prefix}{self.api_key}")
+        other = (
+            ("X-API-KEY", self.api_key)
+            if header.lower() == "authorization"
+            else ("Authorization", f"Bearer {self.api_key}")
+        )
+        return [primary, other]
+
     def _request(self, path: str):
+        last: Exception | None = None
+        for header, value in self._auth_variants():
+            try:
+                payload = self._request_once(path, header, value)
+            except MailBadCredentials as exc:
+                if isinstance(exc, EndpointMissing):
+                    raise
+                last = exc
+                continue
+            self._auth = (header, value)
+            if header != str(self.cfg["auth_header"]):
+                self.log.info("firstmail: ключ принят с заголовком %s", header)
+            return payload
+        raise last or NetworkError("firstmail: запрос не удался")
+
+    def _request_once(self, path: str, auth_header: str, auth_value: str):
         query = urllib.parse.urlencode(
             {
                 self.cfg["username_param"]: self.mail,
@@ -303,7 +346,7 @@ class FirstMailProvider:
         request = urllib.request.Request(
             url,
             headers={
-                self.cfg["auth_header"]: f"{self.cfg.get('auth_prefix') or ''}{self.api_key}",
+                auth_header: auth_value,
                 "Accept": "application/json",
                 "User-Agent": "csfloatreg/1.0",
             },
@@ -318,9 +361,8 @@ class FirstMailProvider:
             if exc.code in (401, 403):
                 raise MailBadCredentials(
                     f"firstmail: сервис не принял ключ ({exc.code}): {short}. "
-                    f"Ключ длиной {len(self.api_key)} символов, заголовок {self.cfg['auth_header']}. "
-                    "Чаще всего ключ скопирован не целиком — возьми его заново в панели "
-                    "(/panel/api/keys/) и проверь `python main.py --mail-probe`"
+                    f"Ключ длиной {len(self.api_key)} символов, заголовок {auth_header}. "
+                    "Проверь `python main.py --mail-probe`: он пробует и Bearer, и X-API-KEY"
                 ) from None
             if exc.code == 404:
                 # HTML вместо JSON означает «нет такого адреса», а не «нет ящика»:
@@ -336,7 +378,12 @@ class FirstMailProvider:
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise NetworkError(f"firstmail: сеть недоступна ({exc})") from None
 
+        if looks_like_antibot(body):
+            raise MailBadCredentials(
+                f"firstmail: {url.split('/')[2]} отвечает JS-заглушкой антибота, а не API. "
+                "Этот домен скриптам недоступен — используй api.firstmail.ltd"
+            ) from None
         try:
             return json.loads(body)
         except ValueError:
-            raise NetworkError(f"firstmail: ответ не JSON ({body[:200]})") from None
+            raise NetworkError(f"firstmail: ответ не JSON ({' '.join(body.split())[:200]})") from None

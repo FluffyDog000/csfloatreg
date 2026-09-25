@@ -119,11 +119,10 @@ mail:
                              # или переменная окружения FIRSTMAIL_API_KEY
     # Адреса и имена полей вынесены в конфиг, чтобы правка документации API
     # не требовала правки кода.
-    # Ключ из /panel/api/keys/ — панельный: ходит с Authorization: Bearer
-    # и базой firstmail.ltd/api/v1 (так написано в самой панели).
-    # У «рыночного» API (api.firstmail.ltd/v1/market/…) свой ключ и заголовок
-    # X-API-KEY — тогда auth_header: X-API-KEY и auth_prefix: ''
-    base_url: https://firstmail.ltd/api/v1
+    # firstmail.ltd закрыт JS-антиботом и скриптам не отвечает — работаем
+    # через api.firstmail.ltd. Заголовок ключа бот подбирает сам: сначала
+    # Authorization: Bearer, при отказе — X-API-KEY.
+    base_url: https://api.firstmail.ltd/v1
     message_path: /market/get/message      # последнее письмо ящика
     messages_path: null                    # списка писем у сервиса нет (404)
     auth_header: Authorization

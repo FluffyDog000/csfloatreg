@@ -201,8 +201,14 @@ def run_mail_probe(args) -> int:
     способ её читать. Команда делает это с машины, у которой есть доступ.
     """
     from bot.pages.mail.firstmail_api import (
-        CANDIDATE_BASES, CANDIDATE_PATHS, DEFAULTS, KNOWN_OK_PATH, SPEC_URLS, raw_get, spec_summary,
+        CANDIDATE_BASES, CANDIDATE_PATHS, DEFAULTS, KNOWN_OK_PATH, SPEC_URLS,
+        looks_like_antibot, raw_get, spec_summary,
     )
+
+    def kind_of(body: str) -> str:
+        if looks_like_antibot(body):
+            return "АНТИБОТ"
+        return "JSON" if body.lstrip().startswith(("{", "[")) else "HTML/текст"
 
     cfg, _selectors, _log_path = load_everything(args)
     settings = {**DEFAULTS, **(cfg.get("mail.firstmail") or {})}
@@ -247,7 +253,7 @@ def run_mail_probe(args) -> int:
     for url in SPEC_URLS:
         status, body = raw_get(url, timeout=15)
         mark = "OK " if status == 200 and body.lstrip().startswith("{") else f"{status or '—'}  "
-        print(f"  {mark} {url}")
+        print(f"  {mark} {url}  {kind_of(body)}")
         if status == 200 and body.lstrip().startswith("{"):
             lines = spec_summary(body)
             if lines:
@@ -269,7 +275,7 @@ def run_mail_probe(args) -> int:
         for suffix, label in (("/", "корень"), (KNOWN_OK_PATH, "домены (проверка ключа)")):
             status, body = raw_get(f"{base}{suffix}", auth(), timeout=15)
             flat = " ".join(body.split())
-            print(f"  {status or '—':<4} {label:<26} {base}{suffix}")
+            print(f"  {status or '—':<4} {kind_of(body):<10} {label:<24} {base}{suffix}")
             print(f"       {flat[:260]}")
 
     # ── 2. перебор адресов ───────────────────────────────────
@@ -294,7 +300,7 @@ def run_mail_probe(args) -> int:
         url = f"{base}{path}?{query}"
         status, body = raw_get(url, auth(), timeout=20)
         flat = " ".join(body.split())
-        kind = "JSON" if flat.startswith(("{", "[")) else "HTML/текст"
+        kind = kind_of(body)
         if status == 200 and kind == "JSON":
             working.append((base, path))
         print(f"  {status or '—':<4} {kind:<10} {base}{path}")
@@ -321,9 +327,9 @@ def run_mail_probe(args) -> int:
         }
         for label, headers in variants.items():
             status, body = raw_get(f"{base}{path}?{query}", headers, timeout=15)
-            print(f"  {status or '—':<4} {label:<30} {' '.join(body.split())[:110]}")
-        print("\n  Ключ из /panel/api/keys/ — панельный: Authorization: Bearer и база"
-              "\n  firstmail.ltd/api/v1. X-API-KEY — это другой, «рыночный» API со своим ключом.")
+            print(f"  {status or '—':<4} {kind_of(body):<10} {label:<30} {' '.join(body.split())[:100]}")
+        print("\n  АНТИБОТ = домен отдаёт JS-заглушку вместо API, скриптам он недоступен."
+              "\n  Тот заголовок, где ответ не «Token is not valid», и есть верный.")
 
     print()
     if working:
