@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from bot import logging_setup
 from bot.config import load_selectors
 from bot.confirmations import ConfirmationError
-from bot.delivery import Delivery
+from bot.delivery import MAX_WORKERS, Delivery
 from bot.errors import LoaderError
 from bot.events import HubLogHandler, hub
 from bot.loader import load_all
@@ -567,7 +567,11 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
                 "opened": login in manager.sessions,
                 "delivery": delivery.results.get(login) or entry.get("delivery") or {},
             })
-        return {"accounts": rows, "running": delivery.running}
+        return {
+            "accounts": rows, "running": delivery.running,
+            "workers": max(1, min(int(cfg.get("delivery.workers", 1) or 1), MAX_WORKERS)),
+            "max_workers": MAX_WORKERS,
+        }
 
     @app.post("/api/m/delivery/inventory/{sender}")
     async def m_delivery_inventory(sender: str):
@@ -599,6 +603,7 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
                     message=str(payload.get("message") or ""),
                     headful=bool(payload.get("headful", False)),
                     resume=bool(payload.get("resume", True)),
+                    workers=max(1, min(int(payload.get("workers") or 1), MAX_WORKERS)),
                 )
             except Exception as exc:  # noqa: BLE001 — рассылка не должна ронять процесс
                 logging_setup.get_logger().error("Рассылка прервана: %s", exc)

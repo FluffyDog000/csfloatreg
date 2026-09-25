@@ -167,6 +167,10 @@
             <label>Штук на аккаунт</label>
             <input id="perAccount" type="number" min="1" max="50" value="1">
           </div>
+          <div class="field" style="width:110px">
+            <label title="Сколько получателей обслуживать разом. Обмены всё равно уходят по одному — параллельно идёт приём">Потоков</label>
+            <input id="workers" type="number" min="1" max="8" value="1">
+          </div>
           <div class="field" style="flex:1;min-width:150px">
             <label>Сообщение к обмену</label>
             <input id="message" type="text" placeholder="необязательно">
@@ -313,7 +317,13 @@ function counts() {
   $('#need').textContent = n ? `Понадобится предметов: ${n * per} (${n} × ${per})` : '';
 }
 
-async function refresh() { STATE = await api('/api/m/delivery'); render(); }
+async function refresh() {
+  STATE = await api('/api/m/delivery');
+  const w = $('#workers');
+  if (!w.dataset.touched && STATE.workers) { w.value = STATE.workers; }   // значение из config.yaml
+  if (STATE.max_workers) w.max = STATE.max_workers;
+  render();
+}
 
 $('#selAll').onclick = () => {
   STATE.accounts.forEach(a => { if (a.trade_url && a.login !== $('#sender').value) PICKED.add(a.login); });
@@ -329,6 +339,7 @@ $('#selFailed').onclick = () => {
   render();
 };
 $('#perAccount').oninput = counts;
+$('#workers').oninput = () => { $('#workers').dataset.touched = '1'; };
 $('#sender').onchange = render;
 
 $('#btnInventory').onclick = async () => {
@@ -356,11 +367,14 @@ $('#btnStart').onclick = async () => {
   const item = $('#item').value.trim();
   if (!item) return toast('Не указан предмет', true);
   const per = Number($('#perAccount').value) || 1;
-  if (!confirm(`Разослать ${per} × «${item}» на ${targets.length} аккаунт(ов)?`)) return;
+  const lanes = Number($('#workers').value) || 1;
+  const how = lanes > 1 ? ` в ${lanes} потока` : '';
+  if (!confirm(`Разослать ${per} × «${item}» на ${targets.length} аккаунт(ов)${how}?`)) return;
   try {
     await api('/api/m/delivery/start', {method:'POST', body: JSON.stringify({
       sender: $('#sender').value, item, per_account: per, targets,
       message: $('#message').value, resume: $('#resume').checked, headful: $('#headful').checked,
+      workers: Number($('#workers').value) || 1,
     })});
     toast('Рассылка запущена');
     setTimeout(refresh, 500);

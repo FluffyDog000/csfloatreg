@@ -37,6 +37,9 @@ from .trading import (
 #: Статусы, при которых аккаунт в повторном прогоне пропускается.
 DONE_STATUSES = ("accepted", "escrow")
 
+#: Больше потоков — больше одновременно открытых браузеров, а они дорогие.
+MAX_WORKERS = 8
+
 
 class Delivery:
     """Одна рассылка: отправитель, предмет, количество, список получателей."""
@@ -46,6 +49,9 @@ class Delivery:
         self.hub = hub or default_hub
         self.log = get_logger()
         self._stop = asyncio.Event()
+        # отправляет всегда один аккаунт: очередь обменов пачкой Steam не любит,
+        # поэтому сами отправки идут по одной, а приём — параллельно
+        self._send_gate = asyncio.Lock()
         self.running = False
         self.results: dict[str, dict] = {}
 
@@ -107,6 +113,7 @@ class Delivery:
         headful: bool | None = False,
         pause: tuple[float, float] = (4.0, 9.0),
         resume: bool = True,
+        workers: int = 1,
     ) -> dict:
         if self.running:
             raise RuntimeError("рассылка уже идёт")
@@ -118,7 +125,8 @@ class Delivery:
         self.results = {}
         started = time.monotonic()
         used: set[str] = set()
-        sent = accepted = skipped = failed = 0
+        lanes = max(1, min(int(workers or 1), MAX_WORKERS))
+        counters = {"sent": 0, "accepted": 0, "skipped": 0, "failed": 0}
 
         try:
             mafile = self.manager.mafiles.get(sender.lower())
@@ -145,49 +153,56 @@ class Delivery:
                     f"предметов «{item}» не хватит: нужно {need}, свободно {available}"
                 )
 
+            queue = []
             for login in targets:
-                if self._stop.is_set():
-                    self.log.warning("Рассылка остановлена, осталось аккаунтов: %d",
-                                     len(targets) - sent - skipped - failed)
-                    break
-
                 previous = self.previous(login)
                 if resume and previous.get("status") in DONE_STATUSES:
-                    skipped += 1
+                    counters["skipped"] += 1
                     self._record(login, status=previous["status"], note="уже сделано ранее")
-                    continue
-
-                try:
-                    outcome = await self._one(
-                        sender=sender, mafile=mafile, login=login,
-                        items=items, item=item, per_account=per_account, used=used,
-                        message=message, headful=headful,
-                    )
-                except (TradeError, ConfirmationError, SessionExpired) as exc:
-                    failed += 1
-                    self.log.error("[%s] рассылка: %s", login, exc)
-                    self._record(login, status="error", note=str(exc)[:200])
-                except Exception as exc:  # noqa: BLE001 — одна беда не должна валить всю рассылку
-                    failed += 1
-                    self.log.exception("[%s] непредвиденная ошибка рассылки", login)
-                    self._record(login, status="error", note=f"{type(exc).__name__}: {exc}"[:200])
                 else:
-                    sent += 1
-                    accepted += 1 if outcome.get("status") in DONE_STATUSES else 0
+                    queue.append(login)
+            if lanes > 1:
+                self.log.info("Потоков: %d — приём идёт параллельно, отправки по-прежнему по одной", lanes)
 
-                await asyncio.sleep(random.uniform(*pause))
+            gate = asyncio.Semaphore(lanes)
 
-            summary = {
-                "sent": sent, "accepted": accepted, "skipped": skipped, "failed": failed,
-                "elapsed": round(time.monotonic() - started, 1),
-            }
+            async def handle(login: str) -> None:
+                async with gate:
+                    if self._stop.is_set():
+                        return
+                    try:
+                        outcome = await self._one(
+                            sender=sender, mafile=mafile, login=login,
+                            items=items, item=item, per_account=per_account, used=used,
+                            message=message, headful=headful, pause=pause,
+                        )
+                    except (TradeError, ConfirmationError, SessionExpired) as exc:
+                        counters["failed"] += 1
+                        self.log.error("[%s] рассылка: %s", login, exc)
+                        self._record(login, status="error", note=str(exc)[:200])
+                    except Exception as exc:  # noqa: BLE001 — одна беда не должна валить всю рассылку
+                        counters["failed"] += 1
+                        self.log.exception("[%s] непредвиденная ошибка рассылки", login)
+                        self._record(login, status="error", note=f"{type(exc).__name__}: {exc}"[:200])
+                    else:
+                        counters["sent"] += 1
+                        counters["accepted"] += 1 if outcome.get("status") in DONE_STATUSES else 0
+
+            await asyncio.gather(*(handle(login) for login in queue))
+
+            untouched = len(queue) - counters["sent"] - counters["failed"]
+            if untouched:
+                self.log.warning("Рассылка остановлена, не начато аккаунтов: %d", untouched)
+
+            summary = {**counters, "elapsed": round(time.monotonic() - started, 1)}
             self.log.info("Рассылка завершена: %s", summary)
             self.hub.publish("delivery-run", state="finished", **summary)
             return summary
         finally:
             self.running = False
 
-    async def _one(self, *, sender, mafile, login, items, item, per_account, used, message, headful) -> dict:
+    async def _one(self, *, sender, mafile, login, items, item, per_account, used, message,
+                   headful, pause=(0.0, 0.0)) -> dict:
         trade_url = self.manager.bindings.entry(login).get("trade_url")
         if not trade_url:
             raise TradeError("у аккаунта нет трейд-ссылки")
@@ -196,31 +211,40 @@ class Delivery:
         context = await self.manager.sessions[sender].context("main")
         request = context.request
 
-        chosen = pick_items(items, item, per_account, exclude=used)
         days = await escrow_days(request, partner)
         if days:
             self.log.warning("[%s] Steam обещает заморозку на %d дн.", login, days)
 
-        try:
-            offer = await send_offer(
-                request, sessionid=await session_id(context), partner=partner,
-                items=chosen, message=message,
-            )
-        except SessionExpired as exc:
-            # cookies отправителя протухли посреди рассылки — входим и повторяем,
-            # уже без проверки страницы: состояние сессии мы только что выяснили сами
-            self.log.warning("[%s] %s — вхожу в Steam заново", login, exc)
-            await self._ensure_session(sender, headful=headful, force=True)
-            context = await self.manager.sessions[sender].context("main")
-            request = context.request
-            offer = await send_offer(
-                request, sessionid=await session_id(context), partner=partner,
-                items=chosen, message=message, precheck=False,
-            )
-        used.update(offer["items"])
-        self.log.info("[%s] обмен создан: %s", login, offer["offer_id"])
-        self._record(login, status="sent", offer=offer["offer_id"], items=per_account,
-                     note=f"заморозка {days} дн." if days else "")
+        # отправка — единственное место, где потоки мешали бы друг другу: и предметы
+        # делят один инвентарь, и Steam считает обмены, уходящие подряд
+        async with self._send_gate:
+            chosen = pick_items(items, item, per_account, exclude=used)
+            used.update(i.asset_id for i in chosen)      # бронь до отправки
+            try:
+                try:
+                    offer = await send_offer(
+                        request, sessionid=await session_id(context), partner=partner,
+                        items=chosen, message=message,
+                    )
+                except SessionExpired as exc:
+                    # cookies отправителя протухли посреди рассылки — входим и повторяем,
+                    # уже без проверки страницы: состояние сессии мы только что выяснили сами
+                    self.log.warning("[%s] %s — вхожу в Steam заново", login, exc)
+                    await self._ensure_session(sender, headful=headful, force=True)
+                    context = await self.manager.sessions[sender].context("main")
+                    request = context.request
+                    offer = await send_offer(
+                        request, sessionid=await session_id(context), partner=partner,
+                        items=chosen, message=message, precheck=False,
+                    )
+            except BaseException:
+                used.difference_update(i.asset_id for i in chosen)   # не ушло — вернуть в пул
+                raise
+            self.log.info("[%s] обмен создан: %s", login, offer["offer_id"])
+            self._record(login, status="sent", offer=offer["offer_id"], items=per_account,
+                         note=f"заморозка {days} дн." if days else "")
+            if pause and max(pause) > 0:
+                await asyncio.sleep(random.uniform(*pause))          # пауза между отправками
 
         if offer["needs_confirmation"]:
             await self._confirm(sender, mafile, offer["offer_id"])
