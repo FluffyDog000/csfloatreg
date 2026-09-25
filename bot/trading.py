@@ -15,6 +15,8 @@ import json
 import re
 from urllib.parse import parse_qs, urlparse
 
+from .logging_setup import get_logger
+
 BASE = "https://steamcommunity.com"
 
 #: Steam хранит id аккаунта в двух видах; разница — эта константа.
@@ -23,6 +25,13 @@ STEAMID64_BASE = 76561197960265728
 HEADERS = {
     "Origin": BASE,
     "X-Requested-With": "XMLHttpRequest",
+}
+
+#: Заголовки для обычного открытия страницы. XMLHttpRequest тут лишний: на
+#: запрос, помеченный как фоновый, Steam иногда отвечает страницей входа.
+PAGE_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Referer": f"{BASE}/",
 }
 
 
@@ -84,12 +93,33 @@ class Item:
         }
 
 
-def _looks_like_login(body: str) -> bool:
-    low = body.lower()
-    return "steamcommunity.com/login" in low or ("login" in low and "<html" in low[:200])
+#: Так выглядит разметка страницы входа. Слово «login» встречается в шапке
+#: любой страницы Steam, поэтому судим по форме входа, а не по нему.
+_LOGGED_OUT_MARKERS = (
+    "g_steamid = false",
+    '"logged_in":false',
+    "/login/dologin",
+    'id="login_btn_signin"',
+    'id="input_password"',
+)
+
+SESSION_EXPIRED_NOTE = "Steam просит войти заново — сессия профиля истекла"
 
 
-def _json(body: str, what: str, *, status: int | None = None) -> dict:
+def _looks_like_login(body: str, url: str = "") -> bool:
+    """Правда ли, что Steam вернул страницу входа, а не то, что просили."""
+    low = (body or "").lower()
+    if "/login/home" in (url or "").lower():
+        return True
+    if 'g_steamid = "7' in low or "g_steamid = '7" in low:
+        return False                      # страница залогиненного аккаунта
+    if any(marker in low for marker in _LOGGED_OUT_MARKERS):
+        return True
+    # XHR-ответ, в котором вместо JSON пришла страница входа
+    return "steamcommunity.com/login" in low and "<html" in low[:400] and "g_steamid" not in low
+
+
+def _json(body: str, what: str, *, status: int | None = None, url: str = "") -> dict:
     """Ответ Steam словарём. Всё остальное — ошибка с текстом, а не падение.
 
     Steam умеет отвечать литералом null: это валидный JSON, но не словарь, и
@@ -98,8 +128,8 @@ def _json(body: str, what: str, *, status: int | None = None) -> dict:
     try:
         payload = json.loads(body)
     except ValueError:
-        if _looks_like_login(body):
-            raise SessionExpired(f"{what}: Steam просит войти заново — сессия профиля истекла") from None
+        if _looks_like_login(body, url):
+            raise SessionExpired(f"{what}: {SESSION_EXPIRED_NOTE}") from None
         raise TradeError(f"{what}: Steam ответил не JSON ({' '.join(body.split())[:160]})") from None
 
     if isinstance(payload, dict):
@@ -109,6 +139,11 @@ def _json(body: str, what: str, *, status: int | None = None) -> dict:
         f"{what}: Steam ответил «{json.dumps(payload)[:60]}» вместо данных ({where.strip(',')} "
         f"тело {len(body)} символов)"
     )
+
+
+def _url_of(response) -> str:
+    """Куда нас в итоге привели: у страницы входа адрес говорит сам за себя."""
+    return str(getattr(response, "url", "") or "")
 
 
 async def session_id(context) -> str:
@@ -125,7 +160,7 @@ async def fetch_inventory(
     """Инвентарь: только предметы, которые можно передать."""
     url = f"{BASE}/inventory/{steam_id}/{app_id}/{context_id}?l=english&count=2000"
     response = await request.get(url, headers=HEADERS, timeout=timeout_ms)
-    payload = _json(await response.text(), "инвентарь", status=response.status)
+    payload = _json(await response.text(), "инвентарь", status=response.status, url=_url_of(response))
     if not payload or payload.get("success") in (False, 0):
         raise TradeError(f"инвентарь недоступен: {str(payload)[:160]}")
 
@@ -180,7 +215,7 @@ async def escrow_days(request, partner: TradePartner, *, timeout_ms: int = 20000
     url = f"{BASE}/tradeoffer/new/getuserdetails/?partner={partner.account_id}&token={partner.token}"
     try:
         response = await request.get(url, headers={**HEADERS, "Referer": partner.referer}, timeout=timeout_ms)
-        payload = _json(await response.text(), "проверка заморозки", status=response.status)
+        payload = _json(await response.text(), "проверка заморозки", status=response.status, url=_url_of(response))
     except TradeError:
         return None
     them = payload.get("them") or {}
@@ -219,6 +254,8 @@ async def send_offer(
     # живой человек сначала открывает страницу обмена, и Steam это учитывает:
     # без захода на неё он умеет отвечать пустым null вместо ответа
     blocker = await trade_page_problem(request, partner, timeout_ms=timeout_ms)
+    if blocker == SESSION_EXPIRED_NOTE:
+        raise SessionExpired(f"страница обмена: {blocker}")
     if blocker:
         raise TradeError(f"страница обмена сообщает: {blocker}")
 
@@ -230,7 +267,7 @@ async def send_offer(
     )
     body = await response.text()
     try:
-        payload = _json(body, "отправка обмена", status=response.status)
+        payload = _json(body, "отправка обмена", status=response.status, url=_url_of(response))
     except SessionExpired:
         raise                       # протухшую сессию не маскируем догадками
     except TradeError as exc:
@@ -270,7 +307,7 @@ async def accept_offer(
         headers={**HEADERS, "Referer": f"{BASE}/tradeoffer/{offer_id}/"},
         timeout=timeout_ms,
     )
-    payload = _json(await response.text(), "приём обмена", status=response.status)
+    payload = _json(await response.text(), "приём обмена", status=response.status, url=_url_of(response))
     if payload.get("strError"):
         raise TradeError(f"Steam отказал в приёме: {payload['strError']}")
     return {
@@ -281,18 +318,30 @@ async def accept_offer(
 
 
 #: Фразы, которыми страница обмена объясняет, почему обмен невозможен.
+#: Только те, которых не бывает на исправной странице: про Steam Guard и смену
+#: пароля там пишут всегда — это предупреждение о заморозке, а не отказ.
 _TRADE_BLOCKERS = (
     "cannot trade",
+    "can't trade",
     "is not available to trade",
     "unable to trade",
     "trade ban",
-    "trade URL is no longer valid",
+    "trade url is no longer valid",
     "profile is private",
-    "they have a trade ban",
-    "you have a trade ban",
-    "recently changed your password",
-    "Steam Guard",
+    "inventory is private",
 )
+
+_MARKUP = re.compile(r"<(script|style)\b.*?</\1\s*>|<[^>]*>", re.S | re.I)
+
+
+def visible_text(html: str) -> str:
+    """Текст страницы без скриптов и тегов.
+
+    Скрипты Steam возят с собой заготовки всех возможных ошибок («You cannot
+    trade…»), поэтому искать причину отказа в сыром HTML нельзя: она найдётся
+    и на совершенно здоровой странице.
+    """
+    return " ".join(_MARKUP.sub(" ", html or "").split())
 
 
 async def trade_page_problem(request, partner: TradePartner, *, timeout_ms: int = 20000) -> str:
@@ -302,16 +351,20 @@ async def trade_page_problem(request, partner: TradePartner, *, timeout_ms: int 
     это подсказка, а не проверка.
     """
     try:
-        response = await request.get(partner.referer, headers=HEADERS, timeout=timeout_ms)
+        response = await request.get(partner.referer, headers=PAGE_HEADERS, timeout=timeout_ms)
         text = await response.text()
     except Exception:  # noqa: BLE001 — подсказка не обязана работать
         return ""
-    if _looks_like_login(text):
-        return "Steam просит войти заново — сессия профиля истекла"
-    flat = " ".join(text.split())
+    flat = visible_text(text)
+    if _looks_like_login(text, _url_of(response)):
+        # в файл лога — чтобы по следующему отчёту было видно саму страницу
+        get_logger().debug("Страница обмена принята за вход (%s): %.200s", _url_of(response), flat)
+        return SESSION_EXPIRED_NOTE
+    low = flat.lower()
     for marker in _TRADE_BLOCKERS:
-        index = flat.lower().find(marker.lower())
+        index = low.find(marker)
         if index >= 0:
+            get_logger().debug("Страница обмена отказывает: %.200s", flat)
             return flat[max(0, index - 90) : index + 110].strip()
     return ""
 
