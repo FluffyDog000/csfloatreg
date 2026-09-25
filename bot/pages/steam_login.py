@@ -71,8 +71,33 @@ class SteamLoginPage(PageHelper):
             return
 
         await self.perform(account, mafile, steam_time, success_markers)
-        await self.click(
-            sel("steam.openid_signin_button", required=False), "подтверждение OpenID", optional=True
+        await self.after_login(success_markers)
+
+    async def after_login(self, success_markers: list[str], *, seconds: float = 25) -> None:
+        """После ввода логина Steam ещё раз показывает подтверждение входа.
+
+        Раньше здесь был один необязательный клик сразу после формы: страница в
+        этот момент ещё редиректила на /openid/login, кнопки не было, и бот молча
+        уходил дальше — со стороны это выглядело как «не нажимает Sign In».
+        Поэтому ждём, чем всё кончится: вернулись на сайт или показали кнопку.
+        """
+        sel = self.ctx.sel
+        candidates = sel("steam.openid_signin_button", required=False)
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            for marker in success_markers:
+                if await self.matches(marker, timeout=120):
+                    self.log.info("После входа Steam сразу вернул нас обратно")
+                    return
+            if candidates and await self.first_visible(candidates, timeout=1) is not None:
+                self.log.info("После входа Steam показал подтверждение — жму Sign In")
+                await self._confirm_openid(candidates)
+                return
+            await asyncio.sleep(0.5)
+
+        self.log.info(
+            "После входа ни подтверждения, ни возврата за %.0f c. Страница: %s",
+            seconds, self.page.url[:110],
         )
 
     async def _confirm_openid(self, candidates: list[str]) -> None:
@@ -84,7 +109,14 @@ class SteamLoginPage(PageHelper):
         если остались на месте, дожимаем форму её же средствами.
         """
         before = self.page.url
+        if "/openid" not in before:
+            self.log.info("Страница уже ушла с OpenID — подтверждать нечего")
+            return
+
         await self._describe_button(candidates)
+        if await self._navigating_away():
+            self.log.info("Steam уже перекинул нас дальше, кнопку жать не нужно")
+            return
 
         ways = (
             ("обычный клик", self._plain_click),
@@ -94,6 +126,9 @@ class SteamLoginPage(PageHelper):
             ("отправка формы", self._submit_form),
         )
         for title, attempt in ways:
+            if await self._navigating_away():
+                self.log.info("Вход подтверждён: Steam ушёл со страницы сам")
+                return
             try:
                 await attempt(candidates)
             except Exception as exc:  # noqa: BLE001 — на то они и запасные пути
@@ -111,7 +146,12 @@ class SteamLoginPage(PageHelper):
 
     async def _describe_button(self, candidates: list[str]) -> None:
         """Пишет в лог, что именно бот считает кнопкой. Без этого «не нажимает»
-        невозможно отличить от «нажимает не туда»."""
+        невозможно отличить от «нажимает не туда».
+
+        Все запросы к странице — с коротким таймаутом: диагностика не имеет права
+        стоить дороже самого действия, а на уходящей странице evaluate висит до
+        последнего.
+        """
         self.log.info("Страница перед подтверждением: %s | %s", self.page.url[:110], await self._title())
         for candidate in candidates:
             try:
@@ -136,7 +176,8 @@ class SteamLoginPage(PageHelper):
                             covered: top !== el && !el.contains(top),
                             coveredBy: top ? (top.tagName + '.' + (top.className || '')).slice(0, 40) : '',
                         };
-                    }"""
+                    }""",
+                    timeout=2500,
                 )
             except Exception as exc:  # noqa: BLE001
                 self.log.info("  %-46s найдено (%d), детали недоступны: %s", candidate, count, str(exc)[:60])
@@ -147,6 +188,13 @@ class SteamLoginPage(PageHelper):
                 ", ВЫКЛЮЧЕНА" if info["disabled"] else "",
                 f", ПЕРЕКРЫТА {info['coveredBy']}" if info["covered"] else "",
             )
+
+    async def _navigating_away(self) -> bool:
+        """Steam сам ушёл со страницы подтверждения (в заголовке уже Loading …)."""
+        if "/openid" not in self.page.url:
+            return True
+        title = await self._title()
+        return title.lower().startswith("loading")
 
     async def _title(self) -> str:
         try:
@@ -302,6 +350,9 @@ class SteamLoginPage(PageHelper):
             state = await self.wait_any(
                 {
                     "success": success_markers,
+                    # после кода Steam часто показывает ещё и подтверждение OpenID —
+                    # это успех, а не «ничего не произошло»
+                    "confirm": sel("steam.openid_signin_button", required=False),
                     "bad_code": sel("steam.guard_boxes") + sel("steam.guard_single"),
                     "locked": sel("steam.locked"),
                     "rate_limited": sel("steam.rate_limited"),
@@ -310,8 +361,8 @@ class SteamLoginPage(PageHelper):
                 timeout=40,
             )
             await self._raise_on_bad_state(state)
-            if state == "success":
-                self.log.info("Steam Guard пройден")
+            if state in ("success", "confirm"):
+                self.log.info("Steam Guard пройден%s", " (показано подтверждение входа)" if state == "confirm" else "")
                 return
 
             # поле кода всё ещё на экране: скорее всего код протух на границе окна
