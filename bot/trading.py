@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+from datetime import datetime
 from urllib.parse import parse_qs, urlparse
 
 from .logging_setup import get_logger
@@ -83,6 +84,8 @@ class Item:
     app_id: int
     context_id: str
     tradable: bool
+    #: «Oct 2, 2026 (23:41:12)» — как Steam пишет дату выхода из трейд-бана
+    tradable_after: str = ""
 
     def as_asset(self, amount: int = 1) -> dict:
         return {
@@ -104,6 +107,50 @@ _LOGGED_OUT_MARKERS = (
 )
 
 SESSION_EXPIRED_NOTE = "Steam просит войти заново — сессия профиля истекла"
+
+
+#: Сколько предмет лежит запертым после обмена. Steam скажет точнее, но если
+#: он промолчит, семь дней — это правило CS2, а не догадка.
+TRADE_HOLD_DAYS = 7
+
+_TRADABLE_AFTER = re.compile(r"(?:Tradable|Marketable)[^,]{0,40}?After\s+(.+)", re.I)
+_DATE_FORMATS = ("%b %d, %Y (%H:%M:%S)", "%d %b, %Y (%H:%M:%S)", "%b %d, %Y", "%d %b, %Y")
+
+
+def tradable_after(description: dict) -> str:
+    """Дата разблокировки предмета словами самого Steam. Нет пометки — пусто.
+
+    Она лежит в owner_descriptions: это видно только владельцу инвентаря,
+    поэтому спрашивать надо из профиля получателя, а не отправителя.
+    """
+    notes = (description.get("owner_descriptions") or []) + (description.get("descriptions") or [])
+    for note in notes:
+        text = " ".join(str((note or {}).get("value") or "").split())
+        found = _TRADABLE_AFTER.search(text)
+        if found:
+            return found.group(1).strip(" .")
+    return ""
+
+
+def parse_steam_date(text: str) -> str:
+    """«Oct 2, 2026 (23:41:12)» → «2026-10-02 23:41:12». Не разобрали — пустая строка."""
+    cleaned = re.sub(r"\s*\(?(GMT|UTC)\)?\s*$", "", (text or "").strip())
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(cleaned, fmt).strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+    return ""
+
+
+def locked_until(items: list[Item], name: str) -> dict:
+    """Самая поздняя блокировка среди предметов с этим именем — это только что пришедший."""
+    wanted = name.strip().lower()
+    marks = [i.tradable_after for i in items if i.name.strip().lower() == wanted and i.tradable_after]
+    if not marks:
+        return {}
+    raw = max(marks, key=lambda text: parse_steam_date(text) or text)
+    return {"unlock_at": parse_steam_date(raw), "unlock_text": raw}
 
 
 def _looks_like_login(body: str, url: str = "") -> bool:
@@ -181,6 +228,7 @@ async def fetch_inventory(
                 app_id=int(asset.get("appid") or app_id),
                 context_id=str(asset.get("contextid") or context_id),
                 tradable=bool(description.get("tradable", 1)),
+                tradable_after=tradable_after(description),
             )
         )
     return items

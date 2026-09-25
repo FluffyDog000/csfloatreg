@@ -20,12 +20,14 @@ from .confirmations import respond as respond_confirmations
 from .events import hub as default_hub
 from .logging_setup import get_logger
 from .trading import (
+    TRADE_HOLD_DAYS,
     SessionExpired,
     TradeError,
     accept_offer,
     escrow_days,
     fetch_inventory,
     item_counts,
+    locked_until,
     parse_trade_url,
     pick_items,
     send_offer,
@@ -224,12 +226,16 @@ class Delivery:
             await self._confirm(sender, mafile, offer["offer_id"])
             self._record(login, status="confirmed", offer=offer["offer_id"], items=per_account)
 
-        result = await self._accept(login, offer["offer_id"], mafile.steam_id, headful=headful)
+        result = await self._accept(
+            login, offer["offer_id"], mafile.steam_id,
+            headful=headful, partner=partner, item=item, escrow=days,
+        )
         status = "escrow" if (days or result.get("escrow")) else "accepted"
         self.log.info("[%s] обмен %s: %s", login, offer["offer_id"], status)
         return self._record(
             login, status=status, offer=offer["offer_id"], items=per_account,
             note=f"заморозка {days} дн." if days else "",
+            **result.get("lock", {}),
         )
 
     async def _confirm(self, sender: str, mafile, offer_id: str, *, attempts: int = 6) -> None:
@@ -246,7 +252,8 @@ class Delivery:
             await asyncio.sleep(2.5)
         raise ConfirmationError(f"подтверждение для обмена {offer_id} так и не появилось")
 
-    async def _accept(self, login: str, offer_id: str, sender_steam_id: str, *, headful) -> dict:
+    async def _accept(self, login: str, offer_id: str, sender_steam_id: str, *,
+                      headful, partner, item: str, escrow) -> dict:
         """Приём на стороне получателя: его профиль, его прокси, его cookies."""
         opened_here = login not in self.manager.sessions
         try:
@@ -254,14 +261,53 @@ class Delivery:
                 # заодно будит cookie sessionid: она живёт до закрытия браузера,
                 # и в свежем профиле её нет, пока не открыта страница Steam
                 await self._ensure_session(login, headful=headful)
-                return await self._accept_once(login, offer_id, sender_steam_id, headful=headful)
+                result = await self._accept_once(login, offer_id, sender_steam_id, headful=headful)
             except SessionExpired as exc:
                 self.log.warning("[%s] %s — вхожу в Steam заново", login, exc)
                 await self._ensure_session(login, headful=headful, force=True)
-                return await self._accept_once(login, offer_id, sender_steam_id, headful=headful)
+                result = await self._accept_once(login, offer_id, sender_steam_id, headful=headful)
+
+            held = int(escrow or 0) or (15 if result.get("escrow") else 0)
+            # пока профиль получателя открыт — самое время спросить про трейд-бан
+            result["lock"] = await self._trade_lock(login, partner, item, held, headful=headful)
+            return result
         finally:
             if opened_here:
                 await self.manager.close_profile(login)
+
+    async def _trade_lock(self, login: str, partner, item: str, held_days: int, *,
+                          headful, attempts: int = 3) -> dict:
+        """Когда предмет выйдет из трейд-бана.
+
+        Дату называет сам Steam — она лежит в инвентаре получателя и видна
+        только ему. Инвентарь после обмена обновляется не мгновенно, поэтому
+        пробуем несколько раз, а если Steam так и промолчал, считаем сами:
+        семь дней после обмена — правило CS2.
+        """
+        due = time.time() + (TRADE_HOLD_DAYS + held_days) * 86400
+        guess = {
+            "unlock_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(due)),
+            "unlock_text": "", "unlock_source": "расчёт",
+        }
+        if held_days:
+            return guess                      # предмет ещё в заморозке, в инвентаре его нет
+
+        for attempt in range(1, attempts + 1):
+            try:
+                context = await self.manager.request_for(login, headful=headful)
+                items = await fetch_inventory(context.request, partner.steam_id)
+            except Exception as exc:  # noqa: BLE001 — дата не повод считать приём неудачным
+                self.log.debug("[%s] инвентарь для даты разблокировки не прочитался: %s", login, exc)
+                return guess
+            lock = locked_until(items, item)
+            if lock:
+                self.log.info("[%s] предмет заперт до %s", login, lock["unlock_at"] or lock["unlock_text"])
+                return {**lock, "unlock_source": "Steam"}
+            if attempt < attempts:
+                await asyncio.sleep(2.5)
+
+        self.log.debug("[%s] Steam не назвал дату разблокировки — считаю сам", login)
+        return guess
 
     async def _accept_once(self, login: str, offer_id: str, sender_steam_id: str, *, headful) -> dict:
         context = await self.manager.request_for(login, headful=headful)

@@ -227,6 +227,7 @@ class ProfileManager:
             "can_confirm": bool(mafile and mafile.identity_secret and mafile.steam_id),
             "opened": login in self.sessions,
             "guard": self.guard(login),
+            "delivery": entry.get("delivery") or {},
         }
 
     def set_status(self, login: str, status: str, note: str = "") -> None:

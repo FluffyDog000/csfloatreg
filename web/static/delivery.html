@@ -121,7 +121,7 @@
         <table>
           <thead><tr>
             <th style="width:28px"></th><th>Логин</th><th>Трейд-ссылка</th>
-            <th>Обмен</th><th>Статус</th>
+            <th>Обмен</th><th>Статус</th><th>Разблокируется</th>
           </tr></thead>
           <tbody id="rows"></tbody>
         </table>
@@ -269,9 +269,41 @@ function render() {
     } else tdSt.appendChild(el('span','muted','—'));
     tr.appendChild(tdSt);
 
+    tr.appendChild(unlockCell(d));
+
     tb.appendChild(tr);
   });
   counts();
+}
+
+const MONTHS = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
+
+function shortDate(stamp) {                       // 2026-10-02 23:41:12 -> 2 окт, 23:41
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(stamp || '');
+  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}, ${m[4]}:${m[5]}` : (stamp || '');
+}
+
+function remains(stamp) {
+  const at = Date.parse((stamp || '').replace(' ', 'T'));
+  if (!at) return '';
+  const left = at - Date.now();
+  if (left <= 0) return 'уже свободен';
+  const days = Math.floor(left / 86400000);
+  return days ? `через ${days} дн.` : `через ${Math.max(1, Math.round(left / 3600000))} ч.`;
+}
+
+// дату называет сам Steam; когда промолчал — наш расчёт, и это видно в подсказке
+function unlockCell(d) {
+  const td = el('td');
+  const when = d.unlock_at || d.unlock_text;
+  if (!when) { td.appendChild(el('span','muted','—')); return td; }
+  const line = el('span','mono', d.unlock_at ? shortDate(d.unlock_at) : d.unlock_text);
+  line.title = (d.unlock_text ? 'Steam: ' + d.unlock_text : 'посчитано ботом: 7 дней после обмена')
+             + (d.unlock_source ? ` (${d.unlock_source})` : '');
+  td.appendChild(line);
+  const left = remains(d.unlock_at);
+  if (left) { const n = el('div','muted',left); n.style.fontSize = '11px'; td.appendChild(n); }
+  return td;
 }
 
 function counts() {

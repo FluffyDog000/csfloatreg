@@ -284,6 +284,16 @@ async function select(login) {
   f.appendChild(field('Пароль почты',card.mail_password));
   f.appendChild(field('Прокси',card.proxy,{copyable:false}));
   if(card.steam_id) f.appendChild(field('SteamID',card.steam_id));
+  const dl=card.delivery||{};
+  if(dl.unlock_at||dl.unlock_text){
+    const when=dl.unlock_at||dl.unlock_text;
+    const left=(()=>{const at=Date.parse((dl.unlock_at||'').replace(' ','T'));
+      if(!at) return ''; const ms=at-Date.now();
+      if(ms<=0) return ' — уже свободен';
+      const d=Math.floor(ms/86400000);
+      return d?` — через ${d} дн.`:` — через ${Math.max(1,Math.round(ms/3600000))} ч.`;})();
+    f.appendChild(field('Предмет разблокируется',when+left,{copyable:false}));
+  }
   b.appendChild(f);
 
   // трейд-ссылку вбивает человек, хранится в data/bindings.json и переживает перезапуск
