@@ -239,6 +239,14 @@ class ProfileManager:
         context = await session.context("main")
         return context.request, mafile
 
+    async def request_for(self, login: str, *, headful: bool | None = None):
+        """Запросы от имени аккаунта: поднимет профиль, если он ещё не открыт."""
+        if login not in self.sessions:
+            await self.open_profile(login, headful=headful)
+        session = self.sessions[login]
+        context = await session.context("main")
+        return context
+
     async def confirmations(self, login: str) -> list[dict]:
         request, mafile = await self._mobile(login)
         timeout = int(self.cfg.get("timeouts.action_ms", 20000))
@@ -270,7 +278,8 @@ class ProfileManager:
     def _lock(self, login: str) -> asyncio.Lock:
         return self._locks.setdefault(login, asyncio.Lock())
 
-    async def open_profile(self, login: str) -> dict:
+    async def open_profile(self, login: str, *, headful: bool | None = None) -> dict:
+        """headful=None — как в конфиге; рассылка поднимает профили в фоне."""
         async with self._lock(login):
             if login in self.sessions:
                 return {"opened": True, "already": True}
@@ -281,7 +290,10 @@ class ProfileManager:
                 raise RuntimeError("аккаунту не выдан прокси (пул пуст или строка удалена)")
 
             log = get_logger(login)
-            session = BrowserSession(login, proxy, self.cfg, self.state, log, headful=True)
+            session = BrowserSession(
+                login, proxy, self.cfg, self.state, log,
+                headful=True if headful is None else headful,
+            )
             await session.start()
             page = await session.page("main")
 

@@ -34,6 +34,7 @@ class ConfirmationError(RuntimeError):
 class Confirmation:
     id: str
     nonce: str
+    creator_id: str = ""        # id обмена, к которому относится подтверждение
     type: int = 0
     type_name: str = ""
     headline: str = ""
@@ -52,6 +53,7 @@ class Confirmation:
             id=str(raw.get("id") or ""),
             # nonce в новом API, key — в старом
             nonce=str(raw.get("nonce") or raw.get("key") or ""),
+            creator_id=str(raw.get("creator_id") or raw.get("creator") or ""),
             type=int(raw.get("type") or 0),
             type_name=str(raw.get("type_name") or ""),
             headline=str(raw.get("headline") or ""),

@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from bot import logging_setup
 from bot.config import load_selectors
 from bot.confirmations import ConfirmationError
+from bot.delivery import Delivery
 from bot.errors import LoaderError
 from bot.events import HubLogHandler, hub
 from bot.loader import load_all
@@ -133,6 +134,7 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     manager = ProfileManager(cfg, steam_time)
     # одно хранилище привязок на процесс: два экземпляра затирали бы записи друг друга
     state = AppState(cfg, selectors, selectors_path, bindings=manager.bindings)
+    delivery = Delivery(manager)
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -165,6 +167,10 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     @app.get("/profiles")
     async def profiles_page():
         return FileResponse(STATIC / "manager.html")
+
+    @app.get("/delivery")
+    async def delivery_page():
+        return FileResponse(STATIC / "delivery.html")
 
     # ── состояние ────────────────────────────────────────────
     @app.get("/api/state")
@@ -534,6 +540,67 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
             raise HTTPException(404, "аккаунт не найден") from None
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(400, str(exc)) from None
+
+    # ═══ рассылка предметов ══════════════════════════════════
+    @app.get("/api/m/delivery")
+    async def m_delivery_state():
+        rows = []
+        for login in manager.accounts:
+            entry = manager.bindings.entry(login)
+            mafile = manager.mafiles.get(login.lower())
+            rows.append({
+                "login": login,
+                "trade_url": entry.get("trade_url", ""),
+                "can_send": bool(mafile and mafile.identity_secret and mafile.steam_id),
+                "opened": login in manager.sessions,
+                "delivery": delivery.results.get(login) or entry.get("delivery") or {},
+            })
+        return {"accounts": rows, "running": delivery.running}
+
+    @app.post("/api/m/delivery/inventory/{sender}")
+    async def m_delivery_inventory(sender: str):
+        try:
+            return await delivery.inventory(sender)
+        except Exception as exc:  # noqa: BLE001 — текст ошибки нужен в интерфейсе
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/m/delivery/start")
+    async def m_delivery_start(payload: dict = Body(...)):
+        if delivery.running:
+            raise HTTPException(409, "рассылка уже идёт")
+        if state.running:
+            raise HTTPException(409, "идёт прогон регистрации — дождись его конца")
+
+        sender = str(payload.get("sender") or "").strip()
+        item = str(payload.get("item") or "").strip()
+        targets = [str(t) for t in (payload.get("targets") or []) if str(t)]
+        if not sender or not item or not targets:
+            raise HTTPException(400, "нужны отправитель, название предмета и хотя бы один получатель")
+
+        async def _job():
+            try:
+                await delivery.run(
+                    sender=sender,
+                    item=item,
+                    per_account=max(1, int(payload.get("per_account") or 1)),
+                    targets=targets,
+                    message=str(payload.get("message") or ""),
+                    headful=bool(payload.get("headful", False)),
+                    resume=bool(payload.get("resume", True)),
+                )
+            except Exception as exc:  # noqa: BLE001 — рассылка не должна ронять процесс
+                logging_setup.get_logger().error("Рассылка прервана: %s", exc)
+                hub.publish("delivery-run", state="failed", error=str(exc))
+
+        asyncio.create_task(_job())
+        return {"started": True, "targets": len(targets)}
+
+    @app.post("/api/m/delivery/stop")
+    async def m_delivery_stop():
+        if not delivery.running:
+            raise HTTPException(409, "рассылка не запущена")
+        delivery.stop()
+        return {"stopping": True}
 
     @app.post("/api/m/reset/{login}")
     async def m_reset(login: str):
