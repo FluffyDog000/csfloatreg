@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSFloat bot</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%234f8cff'/%3E%3Ccircle cx='8' cy='6' r='2.6' fill='%230f1115'/%3E%3Cpath d='M3 14c0-2.6 2.2-4.2 5-4.2s5 1.6 5 4.2z' fill='%230f1115'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161a21; --panel-2:#1c2129; --line:#252b35;
+    --text:#e6e9ef; --muted:#8b94a6; --accent:#4f8cff; --accent-2:#2f6fe4;
+    --ok:#3ecf8e; --warn:#f0b429; --err:#ff5c5c; --info:#6aa9ff; --purple:#a78bfa;
+    --radius:10px; font-size:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Ubuntu,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  button,input,select,textarea{font:inherit;color:inherit}
+  button{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
+         padding:7px 13px;cursor:pointer;transition:.15s}
+  button:hover:not(:disabled){border-color:var(--accent);background:#222937}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent-2);border-color:var(--accent-2);color:#fff;font-weight:600}
+  button.primary:hover:not(:disabled){background:var(--accent)}
+  button.danger{border-color:#5a2a2a;color:#ff9c9c}
+  button.ghost{background:transparent}
+  input[type=text],input[type=number],select,textarea{
+    background:#0d1016;border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+         padding:12px 18px;background:var(--panel);border-bottom:1px solid var(--line);
+         position:sticky;top:0;z-index:20}
+  .logo{font-weight:700;letter-spacing:.3px}
+  .logo span{color:var(--accent)}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block;margin-right:6px}
+  .dot.run{background:var(--ok);box-shadow:0 0 0 0 rgba(62,207,142,.6);animation:pulse 1.6s infinite}
+  @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(62,207,142,0)}100%{box-shadow:0 0 0 0 rgba(62,207,142,0)}}
+  .spacer{flex:1}
+  .chip{background:var(--panel-2);border:1px solid var(--line);border-radius:999px;
+        padding:3px 10px;font-size:12px;color:var(--muted)}
+
+  main{padding:18px;display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:16px;align-items:start}
+  main > div{min-width:0}
+  @media(max-width:1100px){main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .card h2{margin:0;padding:11px 14px;font-size:13px;letter-spacing:.4px;text-transform:uppercase;
+           color:var(--muted);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .card .body{padding:14px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .stat{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:10px}
+  .stat b{display:block;font-size:20px;line-height:1.3}
+  .stat span{color:var(--muted);font-size:12px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{position:sticky;top:0;background:var(--panel-2);text-align:left;color:var(--muted);
+     font-weight:500;padding:8px 10px;border-bottom:1px solid var(--line);z-index:1}
+  td{padding:8px 10px;border-bottom:1px solid #1d222b;vertical-align:middle}
+  td.actions{white-space:nowrap;text-align:right;position:sticky;right:0;background:var(--panel)}
+  tr:hover td.actions{background:#171c24}
+  th:last-child{position:sticky;right:0}
+  td.actions button{margin-left:4px}
+  tr:hover td{background:#171c24}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+  .muted{color:var(--muted)}
+  .truncate{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;
+         border:1px solid transparent;white-space:nowrap}
+  .b-new{background:#1d2530;color:var(--muted);border-color:var(--line)}
+  .b-run{background:rgba(106,169,255,.14);color:var(--info);border-color:rgba(106,169,255,.35)}
+  .b-done{background:rgba(62,207,142,.14);color:var(--ok);border-color:rgba(62,207,142,.35)}
+  .b-err{background:rgba(255,92,92,.13);color:var(--err);border-color:rgba(255,92,92,.33)}
+  .b-warn{background:rgba(240,180,41,.14);color:var(--warn);border-color:rgba(240,180,41,.33)}
+  .b-purple{background:rgba(167,139,250,.15);color:var(--purple);border-color:rgba(167,139,250,.35)}
+
+  #log{height:340px;overflow:auto;background:#0b0e13;padding:10px 12px;
+       font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55}
+  #log div{white-space:pre-wrap;word-break:break-word}
+  .l-ERROR{color:#ff8c8c}.l-WARNING{color:#f5c563}.l-INFO{color:#c9d3e3}.l-DEBUG{color:#6f7a8c}
+
+  .tabs{display:flex;gap:6px;padding:0 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .tabs button{border:none;background:none;border-bottom:2px solid transparent;border-radius:0;
+               padding:10px 8px;color:var(--muted)}
+  .tabs button.active{color:var(--text);border-bottom-color:var(--accent)}
+  textarea{width:100%;height:440px;resize:vertical;
+           font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.5}
+
+  .modal{position:fixed;inset:0;background:rgba(6,8,12,.75);display:none;align-items:center;
+         justify-content:center;z-index:50;padding:24px}
+  .modal.open{display:flex}
+  .modal .inner{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+                max-width:1100px;width:100%;max-height:88vh;overflow:auto}
+  .modal img{max-width:100%;border-radius:8px;border:1px solid var(--line);margin-bottom:10px}
+  .toast{position:fixed;right:18px;bottom:18px;background:var(--panel-2);border:1px solid var(--line);
+         border-left:3px solid var(--accent);border-radius:8px;padding:10px 14px;z-index:60;
+         transform:translateY(80px);opacity:0;transition:.25s}
+  .toast.show{transform:none;opacity:1}
+  .toast.err{border-left-color:var(--err)}
+  .nav-tabs{display:flex;gap:2px;background:var(--panel-2);border:1px solid var(--line);
+        border-radius:8px;padding:2px}
+  .nav-tabs a{padding:4px 12px;border-radius:6px;text-decoration:none;color:var(--muted);font-size:13px}
+  .nav-tabs a:hover{color:var(--text)}
+  .nav-tabs a.on{background:var(--accent-2);color:#fff;font-weight:600}
+  .hidden{display:none !important}
+  .file-btn{position:relative;overflow:hidden}
+  .file-btn input{position:absolute;inset:0;opacity:0;cursor:pointer}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CSFloat <span>bot</span></div>
+  <nav class="nav-tabs"><a href="/" class="on">Запуск</a><a href="/profiles">Профили</a><a href="/delivery">Рассылка</a></nav>
+  <span class="chip"><span id="dot" class="dot"></span><span id="runState">не запущен</span></span>
+  <span class="chip" id="engineChip">—</span>
+  <div class="spacer"></div>
+  <label class="chip">потоков
+    <input id="threads" type="number" min="1" max="20" value="3" style="width:56px;margin-left:6px;padding:2px 6px">
+  </label>
+  <label class="chip">только
+    <input id="only" type="text" placeholder="логин" style="width:120px;margin-left:6px;padding:2px 6px">
+  </label>
+  <label class="chip"><input id="headful" type="checkbox"> видимый браузер</label>
+  <button id="btnStart" class="primary">▶ Старт</button>
+  <button id="btnStop" class="danger" disabled>■ Стоп</button>
+  <button id="btnReload" class="ghost" title="Перечитать accounts/proxies/mafiles">⟳</button>
+</header>
+
+<main>
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card">
+      <div class="tabs">
+        <button data-tab="accounts" class="active">Аккаунты</button>
+        <button data-tab="config">config.yaml</button>
+        <button data-tab="selectors">selectors.yaml</button>
+      </div>
+
+      <div id="tab-accounts">
+        <div class="body">
+          <div class="grid4">
+            <div class="stat"><b id="cAccounts">0</b><span>аккаунтов</span></div>
+            <div class="stat"><b id="cReady">0</b><span>готовы</span></div>
+            <div class="stat"><b id="cProblems">0</b><span>без maFile</span></div>
+            <div class="stat"><b id="cDone">0</b><span>done</span></div>
+          </div>
+          <div id="loadError" class="hidden" style="margin-top:12px;padding:10px;border-radius:8px;
+               background:rgba(255,92,92,.1);border:1px solid rgba(255,92,92,.3);color:#ff9c9c"></div>
+          <div class="row" style="margin-top:12px">
+            <button class="file-btn">accounts.txt<input type="file" data-kind="accounts" accept=".txt"></button>
+            <button class="file-btn">proxies.txt<input type="file" data-kind="proxies" accept=".txt"></button>
+            <button class="file-btn">mails.txt<input type="file" data-kind="mails" accept=".txt"></button>
+            <button class="file-btn">maFiles<input type="file" data-kind="mafiles" multiple></button>
+            <div class="spacer"></div>
+            <input id="filter" type="text" placeholder="фильтр по логину/статусу" style="width:230px">
+          </div>
+          <div class="row" id="selBar" style="margin-top:10px;padding:8px 10px;border-radius:8px;
+               background:#171c24;border:1px solid var(--line)">
+            <b id="selCount">Выбрано: 0</b>
+            <button id="btnRunSelected" class="primary">▶ Запустить выбранных</button>
+            <span class="muted">статус:</span>
+            <button data-status="new" class="ghost">новый</button>
+            <button data-status="done" class="ghost">готов</button>
+            <button data-status="skipped" class="ghost">пропустить</button>
+            <button id="btnProxySelected" class="ghost">сменить прокси</button>
+            <button id="btnResetSelected" class="ghost danger">сбросить + cookies</button>
+            <div class="spacer"></div>
+            <button id="btnSelNone" class="ghost">снять выделение</button>
+          </div>
+        </div>
+        <div style="max-height:460px;overflow:auto">
+          <table>
+            <thead><tr>
+              <th style="width:28px"><input type="checkbox" id="selAll" title="выбрать всё видимое"></th>
+              <th>Логин</th><th>Статус</th><th>Этап</th><th>Ошибка</th>
+              <th>Почта</th><th>Прокси</th><th></th>
+            </tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="tab-config" class="hidden">
+        <div class="body">
+          <textarea id="configText" spellcheck="false"></textarea>
+          <div class="row" style="margin-top:10px">
+            <button class="primary" data-save="config">Сохранить</button>
+            <button class="ghost" id="btnConfigReload2">Перечитать конфиг</button>
+            <span class="muted">без перечитывания правка применится только после перезапуска</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-selectors" class="hidden">
+        <div class="body">
+          <textarea id="selectorsText" spellcheck="false"></textarea>
+          <div class="row" style="margin-top:10px">
+            <button class="primary" data-save="selectors">Сохранить</button>
+            <span class="muted">перечитывается сразу, без перезапуска</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card">
+      <h2>Статусы <span class="spacer"></span><span id="summaryChips" class="row"></span></h2>
+      <div class="body" id="summaryBody"><span class="muted">пока пусто</span></div>
+    </div>
+    <div class="card">
+      <h2>Лог
+        <div class="spacer"></div>
+        <label class="muted" style="font-size:11px;text-transform:none">
+          <input id="autoscroll" type="checkbox" checked> автопрокрутка</label>
+        <button class="ghost" id="btnClearLog" style="padding:2px 8px;font-size:11px">очистить</button>
+      </h2>
+      <div id="log"></div>
+    </div>
+  </div>
+</main>
+
+<div class="modal" id="modal"><div class="inner"><div class="body" id="modalBody"></div></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get('token');
+const $ = s => document.querySelector(s);
+const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (TOKEN) headers['X-Token'] = TOKEN;
+  if (opts.body && !(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
+  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+function toast(msg, isError) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.toggle('err', !!isError);
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 4000);
+}
+
+const BADGE = {
+  done: 'b-done', new: 'b-new', in_progress: 'b-run', error: 'b-err',
+  captcha: 'b-purple', bad_credentials: 'b-err', steam_locked: 'b-err',
+  no_mafile: 'b-warn', mail_blocked: 'b-err', mail_verify_required: 'b-warn',
+  mail_not_received: 'b-warn', mail_bad_credentials: 'b-err',
+  steam_email_code_required: 'b-warn', steam_mobile_confirm_required: 'b-warn',
+  steam_rate_limited: 'b-warn', not_implemented: 'b-new'
+};
+
+let STATE = { accounts: [], modules: ['registration'], running: false };
+const SELECTED = new Set();          // точечный запуск: отмеченные логины
+let VISIBLE = [];                    // что сейчас показано с учётом фильтра
+
+function selectedLogins() {
+  return (STATE.accounts || []).map(a => a.login).filter(l => SELECTED.has(l.toLowerCase()));
+}
+
+function renderSelection() {
+  const chosen = selectedLogins();
+  $('#selCount').textContent = 'Выбрано: ' + chosen.length;
+  document.querySelectorAll('#selBar button').forEach(b => {
+    if (b.id !== 'btnSelNone') b.disabled = !chosen.length || (b.id === 'btnRunSelected' && STATE.running);
+  });
+  const all = $('#selAll');
+  const shown = VISIBLE.filter(l => SELECTED.has(l.toLowerCase())).length;
+  all.checked = VISIBLE.length > 0 && shown === VISIBLE.length;
+  all.indeterminate = shown > 0 && shown < VISIBLE.length;
+}
+
+function render() {
+  $('#cAccounts').textContent = STATE.counts?.accounts ?? 0;
+  $('#cReady').textContent = STATE.counts?.ready ?? 0;
+  $('#cProblems').textContent = STATE.counts?.problems ?? 0;
+  $('#cDone').textContent = STATE.summary?.done ?? 0;
+  $('#engineChip').textContent = (STATE.engine || '—') + ' · ' + (STATE.modules || []).join(', ');
+  $('#dot').className = 'dot' + (STATE.running ? ' run' : '');
+  $('#runState').textContent = STATE.running ? 'идёт прогон' : 'не запущен';
+  $('#btnStart').disabled = !!STATE.running;
+  $('#btnStop').disabled = !STATE.running;
+
+  const err = $('#loadError');
+  if (STATE.load_error) { err.textContent = STATE.load_error; err.classList.remove('hidden'); }
+  else err.classList.add('hidden');
+
+  const chips = $('#summaryBody');
+  chips.innerHTML = '';
+  const summary = STATE.summary || {};
+  const keys = Object.keys(summary);
+  if (!keys.length) chips.appendChild(el('span', 'muted', 'пока пусто'));
+  keys.sort((a, b) => summary[b] - summary[a]).forEach(k => {
+    const chip = el('span', 'badge ' + (BADGE[k] || 'b-new'), `${k}: ${summary[k]}`);
+    chip.style.marginRight = '6px'; chip.style.marginBottom = '6px';
+    chips.appendChild(chip);
+  });
+
+  const needle = $('#filter').value.trim().toLowerCase();
+  const tbody = $('#rows');
+  tbody.innerHTML = '';
+  VISIBLE = [];
+  (STATE.accounts || []).forEach(acc => {
+    const main = acc.modules[STATE.modules[0]] || { status: 'new' };
+    const text = (acc.login + ' ' + Object.values(acc.modules).map(m => m.status + ' ' + m.stage).join(' ')).toLowerCase();
+    if (needle && !text.includes(needle)) return;
+
+    VISIBLE.push(acc.login);
+    const tr = el('tr');
+
+    const tdSel = el('td');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = SELECTED.has(acc.login.toLowerCase());
+    box.onclick = ev => {
+      ev.stopPropagation();
+      if (box.checked) SELECTED.add(acc.login.toLowerCase());
+      else SELECTED.delete(acc.login.toLowerCase());
+      renderSelection();
+    };
+    tdSel.appendChild(box);
+    tr.appendChild(tdSel);
+
+    tr.appendChild(el('td', 'mono', acc.login));
+
+    const tdStatus = el('td');
+    STATE.modules.forEach(name => {
+      const m = acc.modules[name] || { status: 'new' };
+      const b = el('span', 'badge ' + (BADGE[m.status] || 'b-new'), STATE.modules.length > 1 ? `${name}: ${m.status}` : m.status);
+      b.style.marginRight = '4px';
+      tdStatus.appendChild(b);
+    });
+    tr.appendChild(tdStatus);
+
+    tr.appendChild(el('td', 'mono muted', main.stage || '—'));
+    const tdErr = el('td');
+    const span = el('span', 'truncate mono muted', main.error || acc.bind_error || '');
+    span.title = main.error || acc.bind_error || '';
+    tdErr.appendChild(span);
+    tr.appendChild(tdErr);
+
+    [acc.mail || '—', acc.proxy].forEach(value => {
+      const td = el('td');
+      const span = el('span', 'truncate mono muted', value);
+      span.title = value;
+      td.appendChild(span);
+      tr.appendChild(td);
+    });
+
+    const tdAct = el('td', 'actions');
+
+    const runOne = el('button', 'ghost', '▶');
+    runOne.title = 'запустить только этот аккаунт';
+    runOne.style.padding = '2px 8px';
+    runOne.disabled = !!STATE.running;
+    runOne.onclick = () => startRun([acc.login]);
+    tdAct.appendChild(runOne);
+
+    const pick = document.createElement('select');
+    pick.title = 'поставить статус вручную';
+    pick.style.padding = '2px 4px';
+    pick.style.fontSize = '11px';
+    [['', 'статус…'], ['new', 'новый'], ['done', 'готов'], ['skipped', 'пропустить']].forEach(([v, label]) => {
+      const opt = document.createElement('option');
+      opt.value = v; opt.textContent = label;
+      pick.appendChild(opt);
+    });
+    pick.onchange = async () => {
+      const value = pick.value;
+      pick.value = '';
+      if (value) await setStatus([acc.login], value);
+    };
+    tdAct.appendChild(pick);
+
+    const art = el('button', 'ghost', '⛶');
+    art.title = 'скриншоты и HTML ошибок';
+    art.style.padding = '2px 8px';
+    art.onclick = () => showArtifacts(acc.login);
+    const reset = el('button', 'ghost', '↺');
+    reset.title = 'сбросить статус';
+    reset.style.padding = '2px 8px';
+    reset.onclick = () => resetAccount(acc.login);
+    tdAct.append(art, reset);
+    tr.appendChild(tdAct);
+    tbody.appendChild(tr);
+  });
+  renderSelection();
+}
+
+async function refresh() { STATE = await api('/api/state'); render(); }
+
+async function showArtifacts(login) {
+  const data = await api('/api/artifacts/' + encodeURIComponent(login));
+  const body = $('#modalBody');
+  body.innerHTML = '';
+  body.appendChild(el('h3', null, 'Артефакты — ' + login));
+  if (!data.items.length) body.appendChild(el('p', 'muted', 'файлов нет'));
+  data.items.slice(0, 40).forEach(item => {
+    const url = '/api/artifact?path=' + encodeURIComponent(item.path) + (TOKEN ? '&token=' + TOKEN : '');
+    if (item.name.endsWith('.png')) {
+      body.appendChild(el('div', 'muted mono', item.name));
+      const img = document.createElement('img'); img.src = url; body.appendChild(img);
+    } else {
+      const a = el('a', 'mono', item.name + '  (' + Math.round(item.size / 1024) + ' КБ)');
+      a.href = url; a.target = '_blank';
+      const wrap = el('div'); wrap.style.padding = '3px 0'; wrap.appendChild(a);
+      body.appendChild(wrap);
+    }
+  });
+  $('#modal').classList.add('open');
+}
+
+async function startRun(logins) {
+  try {
+    const payload = {
+      threads: Number($('#threads').value) || 3,
+      headful: $('#headful').checked,
+    };
+    if (logins && logins.length) payload.logins = logins;
+    else payload.only = $('#only').value.trim() || null;
+    await api('/api/start', { method: 'POST', body: JSON.stringify(payload) });
+    toast(logins && logins.length ? ('Запущено аккаунтов: ' + logins.length) : 'Прогон запущен');
+    setTimeout(refresh, 400);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function setStatus(logins, status) {
+  try {
+    const res = await api('/api/status', { method: 'POST', body: JSON.stringify({ logins, status }) });
+    STATE = res.state; render();
+    toast(`Статус «${status}»: ${res.changed.length} аккаунт(ов)`);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function resetAccount(login) {
+  if (!confirm('Сбросить статус ' + login + ' и удалить его cookies?')) return;
+  STATE = await api('/api/reset', { method: 'POST', body: JSON.stringify({ login, forget_cookies: true }) });
+  render();
+  toast('Статус сброшен: ' + login);
+}
+
+$('#modal').onclick = e => { if (e.target.id === 'modal') e.target.classList.remove('open'); };
+$('#filter').oninput = render;
+
+$('#btnStart').onclick = () => startRun(null);
+$('#btnRunSelected').onclick = () => {
+  const chosen = selectedLogins();
+  if (!chosen.length) return toast('Не выбран ни один аккаунт', true);
+  startRun(chosen);
+};
+$('#btnSelNone').onclick = () => { SELECTED.clear(); render(); };
+$('#selAll').onclick = () => {
+  const on = $('#selAll').checked;
+  VISIBLE.forEach(l => on ? SELECTED.add(l.toLowerCase()) : SELECTED.delete(l.toLowerCase()));
+  render();
+};
+document.querySelectorAll('#selBar [data-status]').forEach(btn => {
+  btn.onclick = () => {
+    const chosen = selectedLogins();
+    if (!chosen.length) return toast('Не выбран ни один аккаунт', true);
+    setStatus(chosen, btn.dataset.status);
+  };
+});
+$('#btnProxySelected').onclick = async () => {
+  const chosen = selectedLogins();
+  if (!chosen.length) return toast('Не выбран ни один аккаунт', true);
+  if (!confirm(`Сменить прокси у ${chosen.length} аккаунт(ов)? Текущие пометятся плохими и больше не выдадутся.`)) return;
+  try {
+    const res = await api('/api/m/replace-proxy', {method:'POST', body: JSON.stringify({logins: chosen})});
+    STATE = res.state; render();
+    const failed = res.failed || [];
+    toast(`Прокси заменены: ${res.done.length}` + (failed.length ? `, не вышло: ${failed.length}` : ''), !!failed.length);
+    failed.slice(0, 5).forEach(f => appendLog(`[${f.login}] прокси не заменён: ${f.error}`, 'WARNING'));
+  } catch (e) { toast(e.message, true); }
+};
+
+$('#btnResetSelected').onclick = async () => {
+  const chosen = selectedLogins();
+  if (!chosen.length) return toast('Не выбран ни один аккаунт', true);
+  if (!confirm(`Сбросить статус и удалить cookies у ${chosen.length} аккаунт(ов)?`)) return;
+  try {
+    STATE = await api('/api/reset', { method: 'POST', body: JSON.stringify({ logins: chosen, forget_cookies: true })});
+    render(); toast('Сброшено: ' + chosen.length);
+  } catch (e) { toast(e.message, true); }
+};
+
+async function reloadConfig() {
+  try {
+    const res = await api('/api/config/reload', { method: 'POST' });
+    STATE = res.state; render();
+    toast('Конфиг перечитан · ключ firstmail: ' + (res.mail_key ? 'задан' : 'НЕ ЗАДАН'), !res.mail_key);
+  } catch (e) { toast(e.message, true); }
+}
+$('#btnConfigReload2').onclick = reloadConfig;
+$('#btnStop').onclick = async () => {
+  try { await api('/api/stop', { method: 'POST' }); toast('Останавливаю…'); } catch (e) { toast(e.message, true); }
+};
+$('#btnReload').onclick = async () => { STATE = await api('/api/reload', { method: 'POST' }); render(); toast('Файлы перечитаны'); };
+$('#btnClearLog').onclick = () => { $('#log').innerHTML = ''; };
+
+document.querySelectorAll('.tabs button').forEach(btn => {
+  btn.onclick = async () => {
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b === btn));
+    ['accounts', 'config', 'selectors'].forEach(name =>
+      $('#tab-' + name).classList.toggle('hidden', name !== btn.dataset.tab));
+    if (btn.dataset.tab === 'config' && !$('#configText').value)
+      $('#configText').value = (await api('/api/config/config')).text;
+    if (btn.dataset.tab === 'selectors' && !$('#selectorsText').value)
+      $('#selectorsText').value = (await api('/api/config/selectors')).text;
+  };
+});
+
+document.querySelectorAll('[data-save]').forEach(btn => {
+  btn.onclick = async () => {
+    const name = btn.dataset.save;
+    const text = name === 'config' ? $('#configText').value : $('#selectorsText').value;
+    try {
+      const res = await api('/api/config/' + name, { method: 'POST', body: JSON.stringify({ text }) });
+      toast('Сохранено, бэкап: ' + res.backup);
+      if (name === 'config') await reloadConfig();       // чтобы правка сразу работала
+    } catch (e) { toast(e.message, true); }
+  };
+});
+
+document.querySelectorAll('.file-btn input').forEach(input => {
+  input.onchange = async () => {
+    if (!input.files.length) return;
+    const fd = new FormData();
+    for (const f of input.files) fd.append('files', f);
+    try {
+      const res = await api('/api/upload/' + input.dataset.kind, { method: 'POST', body: fd });
+      STATE = res.state; render();
+      toast('Загружено: ' + res.saved.join(', '));
+    } catch (e) { toast(e.message, true); }
+    input.value = '';
+  };
+});
+
+function appendLog(text, level) {
+  const box = $('#log');
+  const line = el('div', 'l-' + (level || 'INFO'), text);
+  box.appendChild(line);
+  while (box.children.length > 1500) box.removeChild(box.firstChild);
+  if ($('#autoscroll').checked) box.scrollTop = box.scrollHeight;
+}
+
+function connect() {
+  const src = new EventSource('/api/events' + (TOKEN ? '?token=' + TOKEN : ''));
+  src.onmessage = ev => {
+    const data = JSON.parse(ev.data);
+    if (data.kind === 'log') appendLog(data.text, data.level);
+    else if (data.kind === 'result') {
+      const acc = (STATE.accounts || []).find(a => a.login.toLowerCase() === data.login.toLowerCase());
+      if (acc) {
+        acc.modules[data.module] = data;
+        STATE.summary = STATE.summary || {};
+        render();
+      }
+    } else if (data.kind === 'run') {
+      if (data.state === 'started') { STATE.running = true; render(); }
+      if (data.state === 'finished' || data.state === 'failed') { STATE.running = false; refresh(); }
+      if (data.state === 'circuit_breaker') toast('Предохранитель: слишком много ошибок подряд', true);
+    }
+  };
+  src.onerror = () => { src.close(); setTimeout(connect, 3000); };
+}
+
+refresh().then(connect).catch(e => toast(e.message, true));
+setInterval(() => { if (STATE.running) refresh(); }, 8000);
+</script>
+</body>
+</html>

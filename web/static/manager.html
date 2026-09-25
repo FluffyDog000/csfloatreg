@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Профили</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%234f8cff'/%3E%3Ccircle cx='8' cy='6' r='2.6' fill='%230f1115'/%3E%3Cpath d='M3 14c0-2.6 2.2-4.2 5-4.2s5 1.6 5 4.2z' fill='%230f1115'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161a21; --panel-2:#1c2129; --line:#252b35;
+    --text:#e6e9ef; --muted:#8b94a6; --accent:#4f8cff; --accent-2:#2f6fe4;
+    --ok:#3ecf8e; --warn:#f0b429; --err:#ff5c5c; --purple:#a78bfa;
+    --radius:10px; font-size:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  button,input,select,textarea{font:inherit;color:inherit}
+  button{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
+         padding:7px 13px;cursor:pointer;transition:.15s}
+  button:hover:not(:disabled){border-color:var(--accent);background:#222937}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent-2);border-color:var(--accent-2);color:#fff;font-weight:600}
+  button.primary:hover:not(:disabled){background:var(--accent)}
+  button.danger{border-color:#5a2a2a;color:#ff9c9c}
+  button.ghost{background:transparent}
+  input[type=text],input[type=number],textarea{background:#0d1016;border:1px solid var(--line);
+       border-radius:8px;padding:7px 10px}
+  input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+
+  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 18px;
+         background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  .logo{font-weight:700;letter-spacing:.3px}
+  .logo span{color:var(--accent)}
+  .chip{background:var(--panel-2);border:1px solid var(--line);border-radius:999px;
+        padding:3px 11px;font-size:12px;color:var(--muted);white-space:nowrap}
+  .chip b{color:var(--text)}
+  .spacer{flex:1}
+  .file-btn{position:relative;overflow:hidden}
+  .file-btn input{position:absolute;inset:0;opacity:0;cursor:pointer}
+
+  main{padding:16px;display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;align-items:start}
+  @media(max-width:1080px){main{grid-template-columns:1fr}}
+  main>div{min-width:0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .card h2{margin:0;padding:11px 14px;font-size:12px;letter-spacing:.5px;text-transform:uppercase;
+           color:var(--muted);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .body{padding:14px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{position:sticky;top:0;background:var(--panel-2);text-align:left;color:var(--muted);
+     font-weight:500;padding:8px 10px;border-bottom:1px solid var(--line);z-index:1}
+  td{padding:7px 10px;border-bottom:1px solid #1d222b}
+  tbody tr{cursor:pointer}
+  tbody tr:hover td{background:#171c24}
+  tbody tr.sel td{background:#1d2633}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+  .muted{color:var(--muted)}
+  .truncate{max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:bottom}
+
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;border:1px solid transparent}
+  .b-new{background:#1d2530;color:var(--muted);border-color:var(--line)}
+  .b-work{background:rgba(106,169,255,.14);color:#6aa9ff;border-color:rgba(106,169,255,.35)}
+  .b-done{background:rgba(62,207,142,.14);color:var(--ok);border-color:rgba(62,207,142,.35)}
+  .b-bad{background:rgba(255,92,92,.13);color:var(--err);border-color:rgba(255,92,92,.33)}
+  .dot{width:8px;height:8px;border-radius:50%;background:#39404d;display:inline-block}
+  .dot.on{background:var(--ok);box-shadow:0 0 7px rgba(62,207,142,.8)}
+
+  /* карточка аккаунта */
+  .guard{background:#0d1016;border:1px solid var(--line);border-radius:10px;padding:14px;text-align:center}
+  .guard .code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:34px;font-weight:700;
+                letter-spacing:5px;cursor:pointer;user-select:all}
+  .guard .code:hover{color:var(--accent)}
+  .bar{height:4px;background:#1d222b;border-radius:2px;margin-top:10px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent);transition:width .9s linear}
+  .field{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #1d222b}
+  .field label{width:86px;color:var(--muted);font-size:12px;flex:none}
+  .field .val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .field button{padding:3px 9px;font-size:11px}
+
+  .conf{background:#0d1016;border:1px solid var(--line);border-radius:8px;
+        padding:9px 11px;margin-bottom:8px;font-size:12.5px}
+  .conf .muted{font-size:12px}
+  .conf img{width:28px;height:28px;border-radius:5px;object-fit:cover;flex:none}
+  .err-text{color:#ff9c9c;font-size:12px}
+
+  #log{height:170px;overflow:auto;background:#0b0e13;padding:9px 12px;
+       font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.5}
+  #log div{white-space:pre-wrap;word-break:break-word}
+  .l-ERROR{color:#ff8c8c}.l-WARNING{color:#f5c563}.l-INFO{color:#c9d3e3}
+
+  .toast{position:fixed;right:18px;bottom:18px;background:var(--panel-2);border:1px solid var(--line);
+         border-left:3px solid var(--accent);border-radius:8px;padding:10px 14px;z-index:60;
+         transform:translateY(80px);opacity:0;transition:.25s}
+  .toast.show{transform:none;opacity:1}
+  .toast.err{border-left-color:var(--err)}
+  .nav-tabs{display:flex;gap:2px;background:var(--panel-2);border:1px solid var(--line);
+        border-radius:8px;padding:2px}
+  .nav-tabs a{padding:4px 12px;border-radius:6px;text-decoration:none;color:var(--muted);font-size:13px}
+  .nav-tabs a:hover{color:var(--text)}
+  .nav-tabs a.on{background:var(--accent-2);color:#fff;font-weight:600}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CSFloat <span>bot</span></div>
+  <nav class="nav-tabs"><a href="/">Запуск</a><a href="/profiles" class="on">Профили</a><a href="/delivery">Рассылка</a></nav>
+  <span class="chip" id="poolChip">пул: —</span>
+  <span class="chip" id="mailChip">почты: —</span>
+  <span class="chip" id="engineChip">—</span>
+  <div class="spacer"></div>
+  <button class="file-btn ghost">accounts.txt<input type="file" data-kind="accounts" accept=".txt"></button>
+  <button class="file-btn ghost">proxies.txt<input type="file" data-kind="proxies" accept=".txt"></button>
+  <button class="file-btn ghost">mails.txt<input type="file" data-kind="mails" accept=".txt"></button>
+  <button class="file-btn ghost">maFiles<input type="file" data-kind="mafiles" multiple></button>
+  <button id="btnReload" class="ghost" title="Перечитать файлы">⟳</button>
+</header>
+
+<main>
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card">
+      <h2>Аккаунты
+        <div class="spacer"></div>
+        <input id="filter" type="text" placeholder="поиск по логину" style="padding:3px 9px;font-size:12px;width:180px">
+      </h2>
+      <div id="loadError" class="hidden body" style="color:#ff9c9c"></div>
+      <div class="row" id="bulkBar" style="padding:8px 14px;border-bottom:1px solid var(--line);
+           background:#171c24">
+        <b id="pickCount">Выбрано: 0</b>
+        <button id="btnBulkProxy" class="primary" style="padding:4px 12px;font-size:12px">Сменить прокси</button>
+        <div class="spacer"></div>
+        <button id="btnPickNone" class="ghost" style="padding:4px 10px;font-size:12px">снять</button>
+      </div>
+      <div style="max-height:56vh;overflow:auto">
+        <table>
+          <thead><tr>
+            <th style="width:26px"><input type="checkbox" id="pickAll" title="выбрать всё видимое"></th>
+            <th style="width:22px"></th><th>Логин</th><th>Прокси</th><th>Почта</th>
+            <th>maFile</th><th>Трейд</th><th>Статус</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Лог<div class="spacer"></div>
+        <button class="ghost" id="btnClearLog" style="padding:2px 8px;font-size:11px">очистить</button>
+      </h2>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <div class="card" id="panel">
+    <h2>Аккаунт<div class="spacer"></div><span id="panelLogin" class="mono muted"></span></h2>
+    <div class="body" id="panelBody">
+      <p class="muted">Выбери аккаунт в списке слева.</p>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get('token');
+const $ = s => document.querySelector(s);
+const el = (t,c,x)=>{const e=document.createElement(t); if(c)e.className=c; if(x!=null)e.textContent=x; return e;};
+
+async function api(path, opts={}) {
+  const headers = Object.assign({}, opts.headers||{});
+  if (TOKEN) headers['X-Token'] = TOKEN;
+  if (opts.body && !(opts.body instanceof FormData)) headers['Content-Type']='application/json';
+  const res = await fetch(path, Object.assign({}, opts, {headers}));
+  if (!res.ok) { let d=res.statusText; try{d=(await res.json()).detail||d;}catch(e){} throw new Error(d); }
+  return res.status===204 ? null : res.json();
+}
+function toast(msg, isErr) {
+  const t=$('#toast'); t.textContent=msg; t.classList.toggle('err',!!isErr); t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),3500);
+}
+async function copy(text, what) {
+  try { await navigator.clipboard.writeText(text); toast(what+' скопирован'); }
+  catch(e) { toast('не удалось скопировать', true); }
+}
+
+const BADGE={new:'b-new',in_work:'b-work',done:'b-done',bad:'b-bad'};
+const STATUS_RU={new:'новый',in_work:'в работе',done:'готов',bad:'брак'};
+let STATE={accounts:[],pool:{}}, SELECTED=null, guardTimer=null, guardLeft=0;
+const PICKED=new Set();      // галочки для массовых действий
+let VISIBLE=[];              // что показано с учётом фильтра
+
+function pickedLogins(){ return (STATE.accounts||[]).map(a=>a.login).filter(l=>PICKED.has(l)); }
+
+function renderPicked(){
+  const chosen=pickedLogins();
+  $('#pickCount').textContent='Выбрано: '+chosen.length;
+  $('#btnBulkProxy').disabled=!chosen.length;
+  const all=$('#pickAll');
+  const shown=VISIBLE.filter(l=>PICKED.has(l)).length;
+  all.checked=VISIBLE.length>0 && shown===VISIBLE.length;
+  all.indeterminate=shown>0 && shown<VISIBLE.length;
+}
+
+function render() {
+  const p=STATE.pool||{};
+  $('#poolChip').innerHTML=`пул: <b>${p.total||0}</b> · свободно <b>${p.free||0}</b> · занято <b>${p.used||0}</b> · плохих <b>${p.bad||0}</b>`;
+  const m=STATE.mails||{};
+  $('#mailChip').innerHTML=`почты: <b>${m.total||0}</b> · свободно <b>${m.free||0}</b> · занято <b>${m.used||0}</b> · плохих <b>${m.bad||0}</b>`;
+  $('#mailChip').classList.toggle('hidden', !(m.total||0));
+  $('#engineChip').textContent=(STATE.engine||'—')+(STATE.time_offset!==undefined?` · время Steam ${STATE.time_offset>=0?'+':''}${STATE.time_offset}s`:'');
+  const err=$('#loadError');
+  if(STATE.load_error){err.textContent=STATE.load_error;err.classList.remove('hidden');}else err.classList.add('hidden');
+
+  const needle=$('#filter').value.trim().toLowerCase();
+  const tb=$('#rows'); tb.innerHTML=''; VISIBLE=[];
+  (STATE.accounts||[]).forEach(a=>{
+    if(needle && !a.login.toLowerCase().includes(needle)) return;
+    VISIBLE.push(a.login);
+    const tr=el('tr'); if(a.login===SELECTED) tr.classList.add('sel');
+    tr.onclick=()=>select(a.login);
+
+    const tdPick=el('td');
+    const box=document.createElement('input'); box.type='checkbox'; box.checked=PICKED.has(a.login);
+    box.onclick=ev=>{ ev.stopPropagation();            // галочка не должна открывать карточку
+      box.checked?PICKED.add(a.login):PICKED.delete(a.login); renderPicked(); };
+    tdPick.appendChild(box); tr.appendChild(tdPick);
+
+    const d=el('td'); d.appendChild(el('span','dot'+(a.opened?' on':''))); tr.appendChild(d);
+    tr.appendChild(el('td','mono',a.login));
+
+    const tdP=el('td');
+    const sp=el('span','truncate mono muted', a.proxy||(a.proxy_missing?'строка удалена':'не выдан'));
+    sp.title=a.proxy||''; tdP.appendChild(sp); tr.appendChild(tdP);
+
+    const tdM=el('td','mono '+(a.mail_missing?'':'muted'), a.mail || 'почты нет');
+    if(a.mail_missing) tdM.style.color='#ff9c9c';
+    tr.appendChild(tdM);
+    tr.appendChild(el('td', a.has_mafile?'':'muted', a.has_mafile?'✓':'—'));
+    const tdT=el('td', a.trade_url?'':'muted', a.trade_url?'✓':'—');
+    if(a.trade_url) tdT.title=a.trade_url;
+    tr.appendChild(tdT);
+    const tdS=el('td'); tdS.appendChild(el('span','badge '+(BADGE[a.status]||'b-new'),STATUS_RU[a.status]||a.status));
+    tr.appendChild(tdS);
+    tb.appendChild(tr);
+  });
+  renderPicked();
+}
+
+function field(label, value, {mono=true, copyable=true}={}) {
+  const w=el('div','field'); w.appendChild(el('label',null,label));
+  const v=el('div','val'+(mono?' mono':''),value||'—'); v.title=value||''; w.appendChild(v);
+  if(copyable && value){ const b=el('button','ghost','копировать'); b.onclick=()=>copy(value,label); w.appendChild(b); }
+  return w;
+}
+
+async function select(login) {
+  SELECTED=login; render();
+  const card=await api('/api/m/card/'+encodeURIComponent(login));
+  $('#panelLogin').textContent=login;
+  const b=$('#panelBody'); b.innerHTML='';
+
+  // Steam Guard
+  const g=el('div','guard');
+  if(card.has_mafile){
+    const code=el('div','code',card.guard.code||'—');
+    code.title='клик — скопировать';
+    code.onclick=()=>copy(code.textContent,'Код Steam Guard');
+    g.appendChild(code);
+    const bar=el('div','bar'); const i=el('i'); bar.appendChild(i); g.appendChild(bar);
+    const left=el('div','muted'); left.style.fontSize='11px'; left.style.marginTop='6px'; g.appendChild(left);
+    startGuard(login, code, i, left, card.guard.seconds_left);
+  } else {
+    g.appendChild(el('div','muted','maFile не найден — кода нет'));
+  }
+  b.appendChild(g);
+
+  const f=el('div'); f.style.marginTop='12px';
+  f.appendChild(field('Логин',card.login));
+  f.appendChild(field('Пароль',card.password));
+  f.appendChild(field('Почта',card.mail));
+  f.appendChild(field('Пароль почты',card.mail_password));
+  f.appendChild(field('Прокси',card.proxy,{copyable:false}));
+  if(card.steam_id) f.appendChild(field('SteamID',card.steam_id));
+  const dl=card.delivery||{};
+  if(dl.unlock_at||dl.unlock_text){
+    const when=dl.unlock_at||dl.unlock_text;
+    const left=(()=>{const at=Date.parse((dl.unlock_at||'').replace(' ','T'));
+      if(!at) return ''; const ms=at-Date.now();
+      if(ms<=0) return ' — уже свободен';
+      const d=Math.floor(ms/86400000);
+      return d?` — через ${d} дн.`:` — через ${Math.max(1,Math.round(ms/3600000))} ч.`;})();
+    f.appendChild(field('Предмет разблокируется',when+left,{copyable:false}));
+  }
+  b.appendChild(f);
+
+  // трейд-ссылку вбивает человек, хранится в data/bindings.json и переживает перезапуск
+  const tw=el('div'); tw.style.marginTop='12px';
+  const tl=el('div','muted','Трейд-ссылка'); tl.style.fontSize='12px'; tw.appendChild(tl);
+  const tin=el('input'); tin.type='text'; tin.className='mono';
+  tin.style.width='100%'; tin.style.marginTop='6px'; tin.style.fontSize='11.5px';
+  tin.placeholder='https://steamcommunity.com/tradeoffer/new/?partner=…&token=…';
+  tin.value=card.trade_url||'';
+  const tsave=el('button','primary','Сохранить');
+  tsave.onclick=async()=>{
+    try{const r=await api('/api/m/trade-url/'+encodeURIComponent(login),
+        {method:'POST',body:JSON.stringify({trade_url:tin.value})});
+      tin.value=r.trade_url; toast('Трейд-ссылка сохранена'); await refresh();}
+    catch(e){toast(e.message,true);}};
+  tin.onkeydown=ev=>{ if(ev.key==='Enter') tsave.click(); };
+  const tcopy=el('button','ghost','копировать');
+  tcopy.onclick=()=>tin.value?copy(tin.value,'Трейд-ссылка'):toast('ссылка пустая',true);
+  const trow=el('div','row'); trow.style.marginTop='6px';
+  tsave.style.padding='4px 12px'; tsave.style.fontSize='12px';
+  tcopy.style.padding='4px 10px'; tcopy.style.fontSize='12px';
+  trow.appendChild(tsave); trow.appendChild(tcopy);
+  tw.appendChild(tin); tw.appendChild(trow); b.appendChild(tw);
+
+  const acts=el('div','row'); acts.style.marginTop='14px';
+  const open=el('button','primary',card.opened?'Профиль открыт':'Открыть профиль');
+  open.disabled=card.opened;
+  open.onclick=async()=>{open.disabled=true;open.textContent='Запускаю…';
+    try{await api('/api/m/open/'+encodeURIComponent(login),{method:'POST'});toast('Профиль открыт');}
+    catch(e){toast(e.message,true);} await refresh(); select(login);};
+  acts.appendChild(open);
+
+  const close=el('button',null,'Закрыть'); close.disabled=!card.opened;
+  close.onclick=async()=>{try{await api('/api/m/close/'+encodeURIComponent(login),{method:'POST'});toast('Профиль закрыт');}
+    catch(e){toast(e.message,true);} await refresh(); select(login);};
+  acts.appendChild(close);
+
+  if(card.mail_from_pool){
+    const repMail=el('button',null,'Заменить почту');
+    repMail.onclick=async()=>{ if(!confirm('Текущая почта будет помечена плохой и больше не выдастся. Продолжить?')) return;
+      try{const r=await api('/api/m/replace-mail/'+encodeURIComponent(login),{method:'POST'});toast('Новая почта: '+r.mail);}
+      catch(e){toast(e.message,true);} await refresh(); select(login);};
+    acts.appendChild(repMail);
+  }
+
+  const rep=el('button',null,'Заменить прокси');
+  rep.onclick=async()=>{ if(!confirm('Текущий прокси будет помечен плохим и больше не выдастся. Продолжить?')) return;
+    try{const r=await api('/api/m/replace-proxy/'+encodeURIComponent(login),{method:'POST'});toast('Новый прокси: '+r.proxy);}
+    catch(e){toast(e.message,true);} await refresh(); select(login);};
+  acts.appendChild(rep);
+  b.appendChild(acts);
+
+  const st=el('div','row'); st.style.marginTop='12px';
+  st.appendChild(el('span','muted','Статус:'));
+  ['new','in_work','done','bad'].forEach(s=>{
+    const btn=el('button',card.status===s?'primary':'ghost',STATUS_RU[s]);
+    btn.style.padding='4px 10px'; btn.style.fontSize='12px';
+    btn.onclick=async()=>{await api('/api/m/status/'+encodeURIComponent(login),{method:'POST',body:JSON.stringify({status:s,note:card.note||''})});
+      await refresh(); select(login);};
+    st.appendChild(btn);
+  });
+  b.appendChild(st);
+
+  // подтверждения Steam — то же, что делает SDA, но через сессию открытого профиля
+  const cw=el('div'); cw.style.marginTop='16px';
+  const chead=el('div','row');
+  const ctitle=el('div','muted','Подтверждения Steam'); ctitle.style.fontSize='12px';
+  chead.appendChild(ctitle); chead.appendChild(el('div','spacer'));
+  const cbox=el('div'); cbox.style.marginTop='8px';
+  const cbtn=el('button','ghost','Обновить'); cbtn.style.padding='3px 9px'; cbtn.style.fontSize='11px';
+  cbtn.onclick=()=>loadConfs(login,cbox);
+  chead.appendChild(cbtn);
+  cw.appendChild(chead); cw.appendChild(cbox); b.appendChild(cw);
+
+  if(!card.can_confirm){
+    cbtn.disabled=true;
+    cbox.appendChild(el('div','muted','в maFile нет identity_secret — подтверждения недоступны'));
+  } else if(!card.opened){
+    cbtn.disabled=true;
+    cbox.appendChild(el('div','muted','открой профиль: список берётся из его сессии Steam'));
+  } else {
+    loadConfs(login,cbox);
+  }
+
+  const reset=el('button','ghost danger','Стереть профиль и cookies');
+  reset.style.marginTop='12px'; reset.style.fontSize='12px';
+  reset.onclick=async()=>{ if(!confirm('Стереть профиль браузера и cookies? Отпечаток сохранится.')) return;
+    try{await api('/api/m/reset/'+encodeURIComponent(login),{method:'POST'});toast('Профиль стёрт');}
+    catch(e){toast(e.message,true);} await refresh(); select(login);};
+  b.appendChild(reset);
+}
+
+async function loadConfs(login, box){
+  box.innerHTML=''; box.appendChild(el('div','muted','запрашиваю Steam…'));
+  try{
+    const r=await api('/api/m/confirmations/'+encodeURIComponent(login));
+    renderConfs(login, box, r.items||[]);
+  }catch(e){
+    box.innerHTML=''; box.appendChild(el('div','err-text',e.message));
+  }
+}
+
+function renderConfs(login, box, items){
+  box.innerHTML='';
+  if(!items.length){ box.appendChild(el('div','muted','нет ожидающих подтверждений')); return; }
+  items.forEach(c=>{
+    const row=el('div','conf');
+    const head=el('div','row');
+    if(c.icon){ const im=document.createElement('img'); im.src=c.icon; im.alt=''; head.appendChild(im); }
+    const ttl=el('div',null,c.headline||c.type_name||'Подтверждение'); ttl.style.fontWeight='600';
+    head.appendChild(ttl);
+    row.appendChild(head);
+    (c.summary||[]).forEach(line=>row.appendChild(el('div','muted',line)));
+    const acts=el('div','row'); acts.style.marginTop='7px';
+    const ok=el('button','primary',c.accept||'Подтвердить');
+    ok.style.padding='4px 10px'; ok.style.fontSize='12px';
+    ok.onclick=()=>respondConf(login,[c.id],true,box);
+    const no=el('button','ghost danger',c.cancel||'Отклонить');
+    no.style.padding='4px 10px'; no.style.fontSize='12px';
+    no.onclick=()=>respondConf(login,[c.id],false,box);
+    acts.appendChild(ok); acts.appendChild(no); row.appendChild(acts);
+    box.appendChild(row);
+  });
+  if(items.length>1){
+    const all=el('div','row');
+    const a=el('button','primary','Принять все ('+items.length+')');
+    a.style.padding='4px 10px'; a.style.fontSize='12px';
+    a.onclick=()=>respondConf(login,items.map(c=>c.id),true,box);
+    const r=el('button','ghost danger','Отклонить все');
+    r.style.padding='4px 10px'; r.style.fontSize='12px';
+    r.onclick=()=>{ if(confirm('Отклонить все подтверждения?')) respondConf(login,items.map(c=>c.id),false,box); };
+    all.appendChild(a); all.appendChild(r); box.appendChild(all);
+  }
+}
+
+async function respondConf(login, ids, accept, box){
+  box.querySelectorAll('button').forEach(x=>x.disabled=true);
+  try{
+    await api('/api/m/confirmations/'+encodeURIComponent(login),
+      {method:'POST',body:JSON.stringify({ids:ids,accept:accept})});
+    toast(accept?('Подтверждено: '+ids.length):('Отклонено: '+ids.length));
+  }catch(e){ toast(e.message,true); }
+  await loadConfs(login, box);
+}
+
+function startGuard(login, codeEl, barEl, leftEl, secondsLeft) {
+  clearInterval(guardTimer); guardLeft=secondsLeft||30;
+  const tick=async()=>{
+    guardLeft-=1;
+    if(guardLeft<=0){
+      if(SELECTED!==login){clearInterval(guardTimer);return;}
+      try{const g=await api('/api/m/guard/'+encodeURIComponent(login));
+        codeEl.textContent=g.code||'—'; guardLeft=g.seconds_left||30;}catch(e){}
+    }
+    barEl.style.width=Math.max(0,Math.min(100,(guardLeft/30)*100))+'%';
+    leftEl.textContent='обновится через '+Math.max(0,Math.round(guardLeft))+' с';
+  };
+  tick(); guardTimer=setInterval(tick,1000);
+}
+
+async function refresh(){ STATE=await api('/api/m/state'); render(); }
+
+$('#filter').oninput=render;
+$('#pickAll').onclick=()=>{
+  const on=$('#pickAll').checked;
+  VISIBLE.forEach(l=>on?PICKED.add(l):PICKED.delete(l));
+  render();
+};
+$('#btnPickNone').onclick=()=>{ PICKED.clear(); render(); };
+$('#btnBulkProxy').onclick=async()=>{
+  const chosen=pickedLogins();
+  if(!chosen.length) return toast('Не выбран ни один аккаунт', true);
+  if(!confirm(`Сменить прокси у ${chosen.length} аккаунт(ов)? Текущие пометятся плохими и больше не выдадутся.`)) return;
+  try{
+    const r=await api('/api/m/replace-proxy',{method:'POST',body:JSON.stringify({logins:chosen})});
+    const failed=r.failed||[];
+    toast(`Прокси заменены: ${r.done.length}` + (failed.length?`, не вышло: ${failed.length}`:''), !!failed.length);
+    if(failed.length) failed.slice(0,5).forEach(f=>appendLog(`[${f.login}] прокси не заменён: ${f.error}`,'WARNING'));
+  }catch(e){ toast(e.message,true); }
+  await refresh();
+  if(SELECTED) select(SELECTED);
+};
+$('#btnReload').onclick=async()=>{await api('/api/reload',{method:'POST'});await refresh();toast('Файлы перечитаны');};
+$('#btnClearLog').onclick=()=>{$('#log').innerHTML='';};
+document.querySelectorAll('.file-btn input').forEach(inp=>{
+  inp.onchange=async()=>{ if(!inp.files.length) return;
+    const fd=new FormData(); for(const f of inp.files) fd.append('files',f);
+    try{const r=await api('/api/upload/'+inp.dataset.kind,{method:'POST',body:fd});toast('Загружено: '+r.saved.join(', '));await refresh();}
+    catch(e){toast(e.message,true);} inp.value='';};
+});
+
+function appendLog(text,level){
+  const box=$('#log'); box.appendChild(el('div','l-'+(level||'INFO'),text));
+  while(box.children.length>800) box.removeChild(box.firstChild);
+  box.scrollTop=box.scrollHeight;
+}
+function connect(){
+  const src=new EventSource('/api/events'+(TOKEN?'?token='+TOKEN:''));
+  src.onmessage=ev=>{const d=JSON.parse(ev.data);
+    if(d.kind==='log') appendLog(d.text,d.level);};
+  src.onerror=()=>{src.close();setTimeout(connect,3000);};
+}
+
+refresh().then(connect).catch(e=>toast(e.message,true));
+setInterval(refresh,10000);
+</script>
+</body>
+</html>

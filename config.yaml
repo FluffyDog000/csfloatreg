@@ -1,0 +1,166 @@
+# ─────────────────────────────────────────────────────────────
+#  CSFloat bot: два режима в одном приложении
+#    «Запуск»   — очередь автоматической регистрации (run/csfloat/mail)
+#    «Профили»  — ручной антидетект-браузер (paths.data, browser.start_url)
+#  Селекторы живут отдельно: selectors.yaml
+#  Все настройки здесь: отдельного config.local.yaml больше нет.
+#  Ключ firstmail можно держать не в файле, а в переменной FIRSTMAIL_API_KEY.
+# ─────────────────────────────────────────────────────────────
+
+run:
+  threads: 3                 # asyncio.Semaphore
+  headful: false             # true = видимый браузер
+  debug: false               # пошаговый режим с паузами
+  modules: [registration]    # порядок выполнения; api_key появится в модуле 2
+  start_jitter: [1.0, 5.0]   # случайная пауза перед стартом аккаунта, сек
+  skip_statuses: [done]      # какие статусы пропускать при перезапуске
+  circuit_breaker:
+    enabled: true
+    consecutive_failures: 10 # N фатальных подряд -> остановить прогон
+
+paths:
+  accounts: accounts.txt     # login:pass (почта отсюда НЕ берётся)
+  proxies: proxies.txt
+  mails: mails.txt           # mail:password — пул почт firstmail
+  mafiles: mafiles
+  state: state
+  profiles: profiles
+  errors: errors
+  logs: logs
+  debug_dumps: debug
+  results: results.csv
+  data: data               # привязки аккаунт-прокси и пометки менеджера
+
+browser:
+  engine: camoufox           # camoufox | firefox | chromium
+  persistent_profile: true   # профиль на аккаунт (как в антидетект-браузерах), а не только cookies
+  pin_fingerprint: true      # закрепить отпечаток за аккаунтом: seed'ы canvas/audio/fonts не меняются
+  os: [windows]              # какие ОС подделывать (camoufox)
+  humanize: true             # человекоподобные движения курсора
+  geoip: true                # таймзона и координаты по IP прокси
+  force_language: en-US      # язык интерфейса НЕЗАВИСИМО от страны прокси.
+                             # Прокси из Испании переводил Steam на испанский, и
+                             # селекторы по английскому тексту переставали совпадать.
+                             # null — отдать язык на откуп geoip
+  force_site_language: true  # плюс cookie Steam_Language: Accept-Language Steam слушает не всегда
+  block_images: true         # быстрее и дешевле по трафику прокси (в ручном режиме картинки не режутся)
+  start_url: https://csfloat.com    # что открыть при запуске профиля вручную (null — пустая вкладка)
+  locale: en-US              # ВАЖНО: en-US => папка "Junk Email" в Outlook
+  timezone: null             # null = из geoip
+  enable_cache: true
+  disable_ublock: false      # диагностика: включи, если страница остаётся пустой
+  executable_path: null      # путь к конкретному бинарнику браузера, если нужен свой
+  firefox_prefs: {}          # диагностика соединения через прокси. Полный набор,
+                             # когда конкретный сайт отдаёт 504, а другие открываются:
+                             #   network.http.http3.enable: false      (QUIC)
+                             #   network.http.altsvc.enabled: false    (кеш Alt-Svc)
+                             #   network.http.spdy.enabled: false      (HTTP/2)
+                             #   network.dns.echconfig.enabled: false  (ECH в TLS)
+                             #   network.dns.http3_echconfig.enabled: false
+                             #   network.dns.native_https_query: false (DNS-записи HTTPS RR)
+  virtual_display: auto      # auto|true|false — Xvfb для headful на Linux без GUI
+  viewports:
+    - [1280, 800]
+    - [1366, 768]
+    - [1440, 900]
+    - [1536, 864]
+    - [1920, 1080]
+  user_agents: []            # пусто = фингерпринт генерирует camoufox
+
+proxy:
+  default_scheme: http       # если в строке прокси нет схемы
+  relay_socks_auth: true     # socks5 с логином/паролем -> локальный релей без авторизации
+  relay_host: 127.0.0.1
+
+timeouts:
+  page_load_ms: 120000       # резидентские прокси + редиректы Microsoft не влезают в минуту
+  action_ms: 30000
+  step_ms: 180000            # предохранитель на один шаг модуля
+  module_s: 900              # общий бюджет на один модуль для аккаунта (в debug не применяется)
+  mail_list_s: 30            # сколько ждать отрисовки списка писем
+  mail_login_s: 240          # общий запас на вход в почту с промежуточными экранами
+  mail_wait_s: 180           # сколько ждём письмо от CSFloat
+  mail_poll_s: 10            # интервал обновления ящика
+
+retries:
+  attempts: 3                # попыток на модуль (только на retryable-ошибки)
+  base_delay_s: 5
+  max_delay_s: 60
+
+delivery:
+  # Сколько получателей обслуживать одновременно. Отправку это не ускоряет —
+  # обмены всё равно уходят по одному, — зато приём идёт параллельно, а он и
+  # есть долгий: на каждого получателя поднимается свой браузер с его прокси.
+  # Больше 3–4 браузеров разом тянет не всякая машина. Максимум 8.
+  workers: 3
+
+steam:
+  time_sync: true            # синхронизация времени для TOTP
+  time_sync_url: https://api.steampowered.com/ITwoFactorService/QueryTime/v0001/
+  login_url: https://steamcommunity.com/login/home/
+  trade_url_page: https://steamcommunity.com/id/me/tradeoffers/privacy
+
+csfloat:
+  base_url: https://csfloat.com
+  fill_trade_link: true      # шаг 3 мастера: взять трейд-ссылку из Steam и вставить
+  login_attempts: 3          # CSFloat часто не подхватывает сессию с первого редиректа
+  render_timeout_s: 25       # сколько ждать отрисовки SPA, прежде чем ругаться на пустую страницу
+  profile_url: https://csfloat.com/profile
+  settings_url: null         # отдельной страницы настроек не нашли: /profile/settings -> 404.
+                             # Пока null, бот работает с профилем. Если найдёшь адрес — впиши сюда.
+  # CSFloat присылает не ссылку, а токен, который вводится в окне Onboard.
+  # Шаблон подогнан под письмо: слово token/code, потом само значение.
+  token_pattern: '(?:token|code)[^A-Za-z0-9]{0,40}([A-Za-z0-9][A-Za-z0-9._-]{3,63})'
+  confirm_link_pattern: 'https?://[^\s"''<>)]*csfloat\.com[^\s"''<>)]*(?:verify|confirm)[^\s"''<>)]*'
+  mail_search: csfloat
+  mail_subject: CSFloat Email Account   # запасной путь: клик по видимому тексту письма       # подстрока для поиска письма в списке OWA.
+                             # Ищется по всей строке письма, а там видно ИМЯ отправителя
+                             # ("CSFloat"), а не адрес — домен сюда писать нельзя.
+                             # :has-text() регистронезависим.
+
+mail:
+  source: mails_file         # mails_file — почты из mails.txt (по умолчанию)
+                             # accounts   — старый формат login:pass:mail:mailpassword
+  provider: imap             # imap (по логину и паролю) | firstmail (API) | outlook_web (браузер)
+
+  imap:
+    host: imap.firstmail.ltd # проверено: ящики firstmail (hypercubemail.com и прочие
+                             # их домены) обслуживает этот сервер.
+                             # null = подбирать: imap.<домен>, mail.<домен>, imap.firstmail.ltd
+    port: 993
+    ssl: true
+    folders: [INBOX, Junk, Spam, Junk E-mail]   # где искать письмо
+    timeout_s: 30
+    hosts: {}                # свой сервер под конкретный домен: {hypercubemail.com: imap.firstmail.ltd}
+
+  check_junk: true           # outlook_web: заглядывать в «Нежелательная почта»
+  base_url: https://outlook.live.com/mail/0/
+  junk_url: https://outlook.live.com/mail/0/junkemail/
+
+  firstmail:
+    api_key: null            # ключ из панели firstmail (/panel/api/keys/)
+                             # или переменная окружения FIRSTMAIL_API_KEY
+    # Адреса и имена полей вынесены в конфиг, чтобы правка документации API
+    # не требовала правки кода.
+    # firstmail.ltd закрыт JS-антиботом и скриптам не отвечает — работаем
+    # через api.firstmail.ltd. Заголовок ключа бот подбирает сам: сначала
+    # Authorization: Bearer, при отказе — X-API-KEY.
+    base_url: https://api.firstmail.ltd/v1
+    message_path: /market/get/message      # последнее письмо ящика
+    messages_path: null                    # списка писем у сервиса нет (404)
+    auth_header: Authorization
+    auth_prefix: 'Bearer '
+    username_param: username
+    password_param: password
+    timeout_s: 30
+    # WAF перед API отвечает 403 на «скриптовые» User-Agent — представляемся браузером
+    user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'
+
+captcha:
+  solver: none               # none | (задел: anticaptcha, twocaptcha)
+  api_key: null
+
+web:
+  host: 127.0.0.1
+  port: 8000
+  token: null                # если задан — требуется ?token= / заголовок X-Token
