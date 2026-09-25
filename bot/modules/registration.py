@@ -91,6 +91,9 @@ class RegistrationModule:
                         if not await cs.submit_trade_link(trade_url):
                             raise UnexpectedState("CSFloat не принял трейд-ссылку")
 
+                async with ctx.step("csfloat_onboarding_close", "закрываю мастер"):
+                    await cs.close_onboarding()
+
                 await ctx.session.save_state()
                 return
 
@@ -126,6 +129,10 @@ class RegistrationModule:
             if ctx.cfg.get("csfloat.fill_trade_link", True):
                 # вставлять её здесь некуда (мастера нет), но в карточке аккаунта она нужна
                 await self._trade_url(ctx)
+
+            if await cs.onboarding_visible(timeout=2):
+                async with ctx.step("csfloat_onboarding_close", "закрываю мастер"):
+                    await cs.close_onboarding()
 
             await ctx.session.save_state()
         finally:

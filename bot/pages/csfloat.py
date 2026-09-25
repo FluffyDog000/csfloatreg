@@ -328,6 +328,32 @@ class CsFloatPage(PageHelper):
         await self.ctx.dump("onboard_trade_rejected", note="поле трейд-ссылки осталось на экране")
         return False
 
+    async def close_onboarding(self) -> bool:
+        """Закрывает мастер кнопкой Close на экране «You're all set!».
+
+        Окно модальное: пока оно висит, страница под ним недоступна ни боту,
+        ни человеку, который потом сядет за этот профиль.
+        """
+        sel = self.ctx.sel
+        if not await self.onboarding_visible(timeout=3):
+            self.log.info("Окно Onboard уже закрыто")
+            return True
+
+        button = await self.first_visible(sel("csfloat.onboard_close", required=False), timeout=6)
+        if button is None:
+            self.log.warning("Кнопка Close не найдена — закрываю окно клавишей Escape")
+            await self.page.keyboard.press("Escape")
+        else:
+            await button.click()
+        await self.settle(1.2)
+
+        if await self.wait_gone(sel("csfloat.onboard_dialog"), timeout=8):
+            self.log.info("Мастер Onboard закрыт")
+            return True
+        await self.ctx.dump("onboard_not_closed", note="окно Onboard осталось на экране")
+        self.log.warning("Окно Onboard не закрылось")
+        return False
+
     async def _tick_checkboxes(self) -> int:
         """Отмечает все согласия. Чекбоксы Angular Material — это не input,
         поэтому кликаем по самому элементу и проверяем состояние по атрибутам."""

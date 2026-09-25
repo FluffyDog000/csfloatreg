@@ -188,6 +188,13 @@ csfloat:
   onboard_step_trade_link:
     - "mat-dialog-container:has-text('Trade Link') .mat-step-header[aria-selected='true']"
     - "mat-dialog-container:has-text('Find it here')"
+  # Последний шаг мастера: «You're all set!» и кнопка Close
+  onboard_close:
+    - "mat-dialog-container button:has-text('Close')"
+    - "mat-dialog-container button:has-text('Finish')"
+    - "mat-dialog-container button:has-text('Done')"
+    - "mat-dialog-container button:has-text('Закрыть')"
+    - "[role='dialog'] button:has-text('Close')"
   onboard_email_submit:
     - "mat-dialog-container button:has-text('Verify')"
     - "mat-dialog-container button:has-text('Send')"
