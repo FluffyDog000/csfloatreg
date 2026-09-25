@@ -12,13 +12,15 @@ from pathlib import Path
 
 from .bindings import BindingStore
 from .browser import BrowserSession
+from .captcha import build_solver
+from .context import AccountContext
 from .confirmations import Confirmation, ConfirmationError
 from .confirmations import fetch as fetch_confirmations
 from .confirmations import respond as respond_confirmations
 from .loader import load_accounts, load_mafiles, load_mails, load_proxies
 from .logging_setup import get_logger
 from .mailbox import attach_mailboxes, mail_source, mail_stats, replace_mailbox
-from .models import Account, MaFile, Mailbox, Proxy
+from .models import Account, Bundle, MaFile, Mailbox, Proxy
 from .steam_guard import seconds_until_next_code
 from .storage import StateStore
 
@@ -32,10 +34,11 @@ def mask_mail(mail: str) -> str:
 
 
 class ProfileManager:
-    def __init__(self, cfg, steam_time):
+    def __init__(self, cfg, steam_time, selectors: dict | None = None):
         self.cfg = cfg
         self.steam_time = steam_time
         self.log = get_logger()
+        self._selectors = selectors
         cfg.ensure_dirs()
 
         self.state = StateStore(cfg.path_for("state"), cfg.path_for("profiles"))
@@ -259,6 +262,37 @@ class ProfileManager:
         session = self.sessions[login]
         context = await session.context("main")
         return context
+
+    # ── вход в Steam ─────────────────────────────────────────
+    @property
+    def selectors(self) -> dict:
+        """Те же selectors.yaml, что и у очереди: правки действуют на оба режима."""
+        if self._selectors is None:
+            from .config import load_selectors
+
+            self._selectors = load_selectors(self.cfg.get("paths.selectors", "selectors.yaml"))
+        return self._selectors
+
+    def page_context(self, login: str, session, log=None) -> AccountContext:
+        """Контекст страницы для кода, написанного под очередь: тот же набор данных."""
+        bundle = Bundle(
+            account=self.accounts[login],
+            proxy=self.proxy_for(login),
+            mafile=self.mafiles.get(login.lower()),
+        )
+        return AccountContext(
+            bundle=bundle, cfg=self.cfg, selectors=self.selectors, log=log or get_logger(login),
+            session=session, results=None, artifacts=None, steam_time=self.steam_time,
+            solver=build_solver(self.cfg), bindings=self.bindings, module="manager",
+        )
+
+    async def ensure_steam_login(self, login: str, *, headful: bool | None = None,
+                                 force: bool = False) -> dict:
+        """Steam должен помнить аккаунт. Не помнит — бот входит сам."""
+        from .steam_session import ensure_login
+
+        async with self._lock(f"steam:{login}"):
+            return await ensure_login(self, login, headful=headful, force=force)
 
     async def confirmations(self, login: str) -> list[dict]:
         request, mafile = await self._mobile(login)

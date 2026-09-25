@@ -231,6 +231,7 @@ async def send_offer(
     items: list[Item],
     message: str = "",
     timeout_ms: int = 30000,
+    precheck: bool = True,
 ) -> dict:
     """Создаёт обмен «отдаю предметы, не прошу ничего». Возвращает id обмена."""
     if not items:
@@ -253,7 +254,7 @@ async def send_offer(
     }
     # живой человек сначала открывает страницу обмена, и Steam это учитывает:
     # без захода на неё он умеет отвечать пустым null вместо ответа
-    blocker = await trade_page_problem(request, partner, timeout_ms=timeout_ms)
+    blocker = await trade_page_problem(request, partner, timeout_ms=timeout_ms) if precheck else ""
     if blocker == SESSION_EXPIRED_NOTE:
         raise SessionExpired(f"страница обмена: {blocker}")
     if blocker:

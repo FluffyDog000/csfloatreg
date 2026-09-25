@@ -131,7 +131,7 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     if selectors is None:
         selectors = load_selectors(selectors_path)
     steam_time = SteamTime(cfg.get("steam.time_sync_url"), enabled=bool(cfg.get("steam.time_sync", True)))
-    manager = ProfileManager(cfg, steam_time)
+    manager = ProfileManager(cfg, steam_time, selectors=selectors)
     # одно хранилище привязок на процесс: два экземпляра затирали бы записи друг друга
     state = AppState(cfg, selectors, selectors_path, bindings=manager.bindings)
     delivery = Delivery(manager)

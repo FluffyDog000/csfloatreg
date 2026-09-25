@@ -59,6 +59,18 @@ class Delivery:
         self.hub.publish("delivery", **row)
         return row
 
+    async def _ensure_session(self, login: str, *, headful, force: bool = False) -> bool:
+        """Steam должен помнить аккаунт: без этого ни отправить, ни принять.
+
+        Не помнит — бот входит сам. Не смог войти — это ошибка именно этого
+        аккаунта, а не повод ронять всю рассылку.
+        """
+        try:
+            result = await self.manager.ensure_steam_login(login, headful=headful, force=force)
+        except Exception as exc:  # noqa: BLE001 — причину покажем в статусе аккаунта
+            raise SessionExpired(f"не удалось войти в Steam под {login}: {exc}") from None
+        return bool(result.get("relogin"))
+
     def previous(self, login: str) -> dict:
         return self.manager.bindings.entry(login).get("delivery") or {}
 
@@ -73,6 +85,7 @@ class Delivery:
         mafile = self.manager.mafiles.get(sender.lower())
         if mafile is None or not mafile.steam_id:
             raise TradeError(f"для {sender} нет maFile со steamid — неоткуда взять инвентарь")
+        await self._ensure_session(sender, headful=headful)
         context = await self.manager.request_for(sender, headful=headful)
         items = await fetch_inventory(context.request, mafile.steam_id)
         counts = item_counts(items)
@@ -115,8 +128,8 @@ class Delivery:
                     "бот не сможет подтвердить обмены, и они повиснут"
                 )
 
+            await self._ensure_session(sender, headful=headful)
             context = await self.manager.request_for(sender, headful=headful)
-            sessionid = await session_id(context)
             items = await fetch_inventory(context.request, mafile.steam_id)
             available = item_counts(items).get(item, 0)
             need = per_account * len(targets)
@@ -144,7 +157,7 @@ class Delivery:
 
                 try:
                     outcome = await self._one(
-                        sender=sender, sessionid=sessionid, mafile=mafile, login=login,
+                        sender=sender, mafile=mafile, login=login,
                         items=items, item=item, per_account=per_account, used=used,
                         message=message, headful=headful,
                     )
@@ -172,23 +185,36 @@ class Delivery:
         finally:
             self.running = False
 
-    async def _one(self, *, sender, sessionid, mafile, login, items, item, per_account, used, message, headful) -> dict:
+    async def _one(self, *, sender, mafile, login, items, item, per_account, used, message, headful) -> dict:
         trade_url = self.manager.bindings.entry(login).get("trade_url")
         if not trade_url:
             raise TradeError("у аккаунта нет трейд-ссылки")
         partner = parse_trade_url(trade_url)
 
-        context = self.manager.sessions[sender]
-        request = (await context.context("main")).request
+        context = await self.manager.sessions[sender].context("main")
+        request = context.request
 
         chosen = pick_items(items, item, per_account, exclude=used)
         days = await escrow_days(request, partner)
         if days:
             self.log.warning("[%s] Steam обещает заморозку на %d дн.", login, days)
 
-        offer = await send_offer(
-            request, sessionid=sessionid, partner=partner, items=chosen, message=message
-        )
+        try:
+            offer = await send_offer(
+                request, sessionid=await session_id(context), partner=partner,
+                items=chosen, message=message,
+            )
+        except SessionExpired as exc:
+            # cookies отправителя протухли посреди рассылки — входим и повторяем,
+            # уже без проверки страницы: состояние сессии мы только что выяснили сами
+            self.log.warning("[%s] %s — вхожу в Steam заново", login, exc)
+            await self._ensure_session(sender, headful=headful, force=True)
+            context = await self.manager.sessions[sender].context("main")
+            request = context.request
+            offer = await send_offer(
+                request, sessionid=await session_id(context), partner=partner,
+                items=chosen, message=message, precheck=False,
+            )
         used.update(offer["items"])
         self.log.info("[%s] обмен создан: %s", login, offer["offer_id"])
         self._record(login, status="sent", offer=offer["offer_id"], items=per_account,
@@ -223,12 +249,20 @@ class Delivery:
     async def _accept(self, login: str, offer_id: str, sender_steam_id: str, *, headful) -> dict:
         """Приём на стороне получателя: его профиль, его прокси, его cookies."""
         opened_here = login not in self.manager.sessions
-        context = await self.manager.request_for(login, headful=headful)
         try:
-            sessionid = await session_id(context)
-            return await accept_offer(
-                context.request, offer_id, sessionid=sessionid, partner_steam_id=sender_steam_id
-            )
+            try:
+                return await self._accept_once(login, offer_id, sender_steam_id, headful=headful)
+            except SessionExpired as exc:
+                self.log.warning("[%s] %s — вхожу в Steam заново", login, exc)
+                await self._ensure_session(login, headful=headful, force=True)
+                return await self._accept_once(login, offer_id, sender_steam_id, headful=headful)
         finally:
             if opened_here:
                 await self.manager.close_profile(login)
+
+    async def _accept_once(self, login: str, offer_id: str, sender_steam_id: str, *, headful) -> dict:
+        context = await self.manager.request_for(login, headful=headful)
+        return await accept_offer(
+            context.request, offer_id,
+            sessionid=await session_id(context), partner_steam_id=sender_steam_id,
+        )
