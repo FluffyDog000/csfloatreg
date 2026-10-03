@@ -170,6 +170,30 @@ async def fetch(request, mafile: MaFile, steam_time, *, timeout_ms: int = 20000)
     raise ConfirmationError(last_error or "Steam не ответил")
 
 
+async def details(request, mafile: MaFile, steam_time, conf_id: str, *, timeout_ms: int = 20000) -> str:
+    """Подробности подтверждения — то же, что показывает приложение по тапу.
+
+    Нужны, когда операция отклонена без объяснения: подробности иногда прямо
+    говорят, что обмена уже нет.
+    """
+    last = ""
+    for client in CLIENTS:
+        response = await request.get(
+            f"{BASE}/details/{conf_id}",
+            params=_params(mafile, steam_time, f"details{conf_id}", client),
+            headers=HEADERS, timeout=timeout_ms,
+        )
+        body = await response.text()
+        payload = _payload(body)
+        if payload is None:
+            last = _explain(response.status, body)
+            continue
+        if payload.get("success"):
+            return str(payload.get("html") or "")
+        last = _failure(payload)
+    raise ConfirmationError(last or "Steam не отдал подробности")
+
+
 def plans(accept: bool, count: int) -> list[tuple[str, str, str]]:
     """Способы отправить операцию: (адрес, клиент, тег), от обычного к запасным.
 

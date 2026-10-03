@@ -188,11 +188,13 @@ async def run_conf_probe(args) -> int:
     import base64
     import dataclasses
 
+    from bot.confirmations import details as conf_details
     from bot.confirmations import fetch as fetch_confirmations
     from bot.confirmations import respond as respond_confirmations
     from bot.manager import ProfileManager
     from bot.steam_guard import SteamTime
     from bot.steam_web import token_alive, token_expiry, token_payload
+    from bot.trading import PAGE_HEADERS, visible_text
 
     def shown(value: str, keep: int = 6) -> str:
         return f"{value[:keep]}…{value[-4:]} ({len(value)} симв.)" if value else "НЕТ"
@@ -286,6 +288,25 @@ async def run_conf_probe(args) -> int:
             print("   с чужим ключом список пуст — подпись проверяется, identity_secret верный")
     except Exception as exc:  # noqa: BLE001
         print(f"   с чужим ключом отказ ({str(exc)[:80]}) — подпись проверяется, identity_secret верный")
+
+    print("\n5в) Что Steam говорит о самом обмене")
+    for item in items:
+        try:
+            html = await conf_details(context, mafile, steam_time, item.id)
+            print(f"   подробности {item.id}: {visible_text(html)[:200] or 'пусто'}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"   подробности {item.id}: НЕ ОТДАНЫ ({str(exc)[:90]})")
+        if not item.creator_id:
+            continue
+        try:
+            page = await context.get(
+                f"https://steamcommunity.com/tradeoffer/{item.creator_id}/",
+                headers=PAGE_HEADERS, timeout=20000,
+            )
+            text = visible_text(await page.text())
+            print(f"   страница обмена {item.creator_id}: HTTP {page.status}, {text[:200] or 'пусто'}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"   страница обмена {item.creator_id}: не открылась ({str(exc)[:90]})")
 
     if not args.accept:
         print("\n6) Подтверждение не отправлено: добавь --accept, если нужно действительно подтвердить")
