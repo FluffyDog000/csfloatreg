@@ -102,6 +102,8 @@ class MaFile:
     # блок Session из maFile: с этими токенами подтверждения работают без браузера
     access_token: str = dataclasses.field(default="", repr=False)
     refresh_token: str = dataclasses.field(default="", repr=False)
+    #: когда аутентификатор привязали: Steam держит обмены 7 дней после этого
+    enrolled_at: int = 0
     path: Path | None = None
 
     @property

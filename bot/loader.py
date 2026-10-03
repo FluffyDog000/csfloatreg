@@ -211,6 +211,7 @@ def load_mafiles(directory: Path) -> dict[str, MaFile]:
             device_id=str(data.get("device_id") or data.get("DeviceID") or ""),
             access_token=_session_field(session, "AccessToken", "access_token"),
             refresh_token=_session_field(session, "RefreshToken", "refresh_token"),
+            enrolled_at=int(str(data.get("server_time") or data.get("ServerTime") or 0) or 0),
             path=p,
         )
         register_secret(mafile.shared_secret, mafile.identity_secret,

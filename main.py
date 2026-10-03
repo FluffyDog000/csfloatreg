@@ -299,6 +299,14 @@ async def run_conf_probe(args) -> int:
     print(f"   Session.Refresh : {shown(mafile.refresh_token)}"
           + (f", жив: {token_alive(mafile.refresh_token, slack=0)}" if mafile.refresh_token else ""))
     print(f"   пароль аккаунта : {'есть' if account.password else 'НЕТ'}")
+    if mafile.enrolled_at:
+        days = (time.time() - mafile.enrolled_at) / 86400
+        when = time.strftime("%Y-%m-%d", time.localtime(mafile.enrolled_at))
+        print(f"   аутентификатор  : привязан {when} ({days:.1f} дн. назад)"
+              + ("  <-- МЕНЬШЕ 7 ДНЕЙ: Steam держит обмены и отклоняет их подтверждение"
+                 if days < 7 else ""))
+    else:
+        print("   аутентификатор  : дата привязки в maFile не указана")
 
     print("\n3) Какая сессия будет использована")
     offline = manager.can_confirm_offline(login)
