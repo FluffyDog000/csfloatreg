@@ -225,10 +225,10 @@ async def run_limits(args) -> int:
     await asyncio.gather(*(one(login) for login in logins))
     await manager.steam_web.close()
 
-    print(f"  могут отдавать предметы : {len(free)}")
+    print(f"  без ограничений : {len(free)}")
     for login in sorted(free):
         print(f"      {login}")
-    print(f"\n  ОГРАНИЧЕНЫ (нужна покупка на $5) : {len(limited)}")
+    print(f"\n  ОГРАНИЧЕНЫ (limited, покупки на $5 не было) : {len(limited)}")
     for login in sorted(limited):
         print(f"      {login}")
     if failed:

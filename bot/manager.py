@@ -354,7 +354,8 @@ class ProfileManager:
         trouble = limits_problem(limits)
         self.bindings.set_field(login, "limited", limits.get("isLimitedAccount") == "1")
         self.bindings.set_field(login, "limits_at", time.strftime("%Y-%m-%d %H:%M"))
-        self.log.info("[%s] %s", login, trouble or "ограничений нет: обмены разрешены")
+        # коротко: при полусотне аккаунтов длинное пояснение в каждой строке нечитаемо
+        self.log.info("[%s] %s", login, "ОГРАНИЧЕН (limited)" if trouble else "ограничений нет")
         return {"login": login, "limits": limits, "problem": trouble}
 
     async def confirmations(self, login: str) -> list[dict]:
