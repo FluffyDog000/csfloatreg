@@ -258,6 +258,11 @@ class ProfileManager:
         """Хватит ли одного maFile, без открытого браузера."""
         return self.steam_web.possible(self.mafiles.get(login.lower()), self.accounts.get(login))
 
+    async def mobile_request(self, login: str):
+        """Запросы к mobileconf от имени аккаунта — для кода за пределами менеджера."""
+        request, _mafile = await self._mobile(login)
+        return request
+
     async def _mobile(self, login: str):
         """Запросы к mobileconf. Сначала — своя сессия из maFile, как у SDA.
 

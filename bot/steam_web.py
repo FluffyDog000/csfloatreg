@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import time
@@ -57,6 +58,7 @@ class SteamWeb:
         self.domains = COOKIE_DOMAINS        # подменяется в тестах на локальный Steam
         self._contexts: dict[str, object] = {}
         self._relays: dict[str, object] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
 
     # ── токены ───────────────────────────────────────────────
     def tokens_path(self, login: str) -> Path:
@@ -181,6 +183,13 @@ class SteamWeb:
         """Запросы от имени аккаунта: cookies мобильного приложения, прокси аккаунта."""
         if not force and login in self._contexts:
             return self._contexts[login]
+        # без замка два одновременных запроса залогинились бы дважды
+        async with self._locks.setdefault(login, asyncio.Lock()):
+            if not force and login in self._contexts:
+                return self._contexts[login]
+            return await self._build(login, mafile, proxy, account, force=force)
+
+    async def _build(self, login: str, mafile, proxy, account, *, force: bool):
         await self.close_one(login)
 
         tokens = await self.tokens_for(login, mafile, proxy, account, force=force)
