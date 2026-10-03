@@ -67,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
              "что отвечает Steam на список и на подтверждение (ничего не подтверждает)",
     )
     parser.add_argument(
+        "--sda-export", nargs="?", const="sda-export", metavar="ПАПКА",
+        help="собрать папку maFiles для Steam Desktop Authenticator: он откроет все аккаунты "
+             "сразу, с включённым автоподтверждением обменов",
+    )
+    parser.add_argument(
         "--accept", action="store_true",
         help="в режиме --conf-probe: действительно подтвердить найденное, а не только показать",
     )
@@ -175,6 +180,68 @@ async def run_reset(args) -> int:
             await results.update(login, module, status="new", stage="", error="", attempts=0)
         print(f"  сброшен: {login}")
     print(f"\nГотово: {len(bundles)} аккаунт(ов). Отпечатки в state/*.fp.json сохранены.")
+    return 0
+
+
+def run_sda_export(args) -> int:
+    """Папка maFiles для Steam Desktop Authenticator.
+
+    SDA не подхватывает россыпь .maFile: ему нужен manifest.json со списком
+    аккаунтов, а сами файлы он ищет по имени <steamid>.maFile. Собираем это
+    сами, чтобы оставалось только положить папку рядом с программой.
+    """
+    import shutil
+    from pathlib import Path
+
+    from bot.loader import load_mafiles
+
+    cfg, _selectors, _log_path = load_everything(args)
+    source = cfg.path_for("mafiles")
+    mafiles = load_mafiles(source)
+
+    target = Path(args.sda_export)
+    if not target.is_absolute():
+        target = cfg.root / target
+    vault = target / "maFiles"
+    vault.mkdir(parents=True, exist_ok=True)
+
+    entries, skipped = [], []
+    for mafile in sorted(mafiles.values(), key=lambda m: m.account_name.lower()):
+        if not mafile.path or not mafile.steam_id or not mafile.shared_secret:
+            skipped.append(f"{mafile.account_name}: нет steamid или shared_secret")
+            continue
+        name = f"{mafile.steam_id}.maFile"
+        shutil.copy2(mafile.path, vault / name)
+        entries.append({
+            "encryption_iv": None, "encryption_salt": None,
+            "filename": name, "steamid": int(mafile.steam_id),
+        })
+
+    manifest = {
+        "encrypted": False,
+        "first_run": False,
+        "entries": entries,
+        # SDA сам проверяет подтверждения и принимает обмены
+        "periodic_checking": True,
+        "periodic_checking_interval": 5,
+        "periodic_checking_checkall": True,
+        "auto_confirm_market_transactions": False,
+        "auto_confirm_trades": True,
+    }
+    (vault / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    print(f"\nГотово: {len(entries)} аккаунт(ов) в {vault}")
+    for line in skipped:
+        print(f"   пропущен {line}")
+    print("\nЧто дальше:")
+    print("  1. Скачай Steam Desktop Authenticator (релиз с github.com/Jessecar96/SteamDesktopAuthenticator)")
+    print("  2. Распакуй, закрой программу, если открыта")
+    print(f"  3. Скопируй папку {vault} рядом с SteamDesktopAuthenticator.exe, заменив его maFiles")
+    print("  4. Запусти SDA — аккаунты будут в списке, автоподтверждение обменов уже включено")
+    print("\nФайлы скопированы, оригиналы в mafiles/ не тронуты. В них лежат секреты —")
+    print("папку с выгрузкой держи там же, где и остальные данные бота.")
     return 0
 
 
@@ -796,6 +863,8 @@ def main() -> int:
             return run_mail_probe(args)
         if args.conf_probe:
             return asyncio.run(run_conf_probe(args))
+        if args.sda_export:
+            return run_sda_export(args)
         if args.probe is not None:
             return asyncio.run(run_probe(args))
         if args.run or args.check:
