@@ -99,7 +99,14 @@ class MaFile:
     identity_secret: str = dataclasses.field(default="", repr=False)
     steam_id: str = ""
     device_id: str = ""
+    # блок Session из maFile: с этими токенами подтверждения работают без браузера
+    access_token: str = dataclasses.field(default="", repr=False)
+    refresh_token: str = dataclasses.field(default="", repr=False)
     path: Path | None = None
+
+    @property
+    def has_session(self) -> bool:
+        return bool(self.refresh_token or self.access_token)
 
 
 @dataclasses.dataclass(slots=True)

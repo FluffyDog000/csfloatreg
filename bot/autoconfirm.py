@@ -94,9 +94,11 @@ class AutoConfirm:
     # ── обход ────────────────────────────────────────────────
     async def sweep(self, *, include_closed: bool = False) -> dict:
         """Проверяет отмеченные аккаунты. Закрытые профили — только при include_closed."""
+        # аккаунту с токенами в maFile браузер не нужен вовсе — его проверяем всегда
         logins = [
             login for login in self.logins()
             if include_closed or login in self.manager.sessions
+            or self.manager.can_confirm_offline(login)
         ]
         if not logins:
             return {"checked": 0, "accepted": 0}
@@ -122,8 +124,9 @@ class AutoConfirm:
         return done
 
     async def _one(self, login: str) -> int:
-        """Один аккаунт: открыть при необходимости, принять всё, закрыть за собой."""
-        opened_here = login not in self.manager.sessions
+        """Один аккаунт: по возможности без браузера, иначе открыть и закрыть за собой."""
+        offline = self.manager.can_confirm_offline(login)
+        opened_here = not offline and login not in self.manager.sessions
         if opened_here:
             await self.manager.open_profile(login, headful=bool(self.cfg.get("confirm.headful", False)))
         try:

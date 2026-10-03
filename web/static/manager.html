@@ -386,7 +386,7 @@ async function select(login) {
   if(!card.can_confirm){
     cbtn.disabled=true;
     cbox.appendChild(el('div','muted','в maFile нет identity_secret — подтверждения недоступны'));
-  } else if(!card.opened){
+  } else if(!card.opened && !card.offline_confirm){
     cbtn.disabled=true;
     cbox.appendChild(el('div','muted','открой профиль: список берётся из его сессии Steam'));
   } else {

@@ -23,6 +23,7 @@ from .logging_setup import get_logger
 from .mailbox import attach_mailboxes, mail_source, mail_stats, replace_mailbox
 from .models import Account, Bundle, MaFile, Mailbox, Proxy
 from .steam_guard import seconds_until_next_code
+from .steam_web import SteamWeb
 from .storage import StateStore
 
 
@@ -52,6 +53,9 @@ class ProfileManager:
         self.load_error: str | None = None
 
         self.sessions: dict[str, BrowserSession] = {}
+        # подтверждения умеют обходиться без браузера: сессия строится из maFile
+        self.steam_web = SteamWeb(cfg, self.log)
+        self.steam_web.steam_time = steam_time
         self._locks: dict[str, asyncio.Lock] = {}
         self._confs: dict[str, dict[str, Confirmation]] = {}   # последний список подтверждений
         self.reload_inputs()
@@ -227,6 +231,7 @@ class ProfileManager:
             "steam_id": mafile.steam_id if mafile else "",
             "has_mafile": bool(mafile and mafile.shared_secret),
             "can_confirm": bool(mafile and mafile.identity_secret and mafile.steam_id),
+            "offline_confirm": self.can_confirm_offline(login),
             "opened": login in self.sessions,
             "auto_confirm": bool(entry.get("auto_confirm")),
             "guard": self.guard(login),
@@ -248,14 +253,38 @@ class ProfileManager:
         return url
 
     # ── подтверждения Steam (как в SDA) ──────────────────────
+    def can_confirm_offline(self, login: str) -> bool:
+        """Хватит ли одного maFile, без открытого браузера."""
+        return self.steam_web.possible(self.mafiles.get(login.lower()), self.accounts.get(login))
+
     async def _mobile(self, login: str):
-        """Запросы к mobileconf идут через cookies открытого профиля."""
-        session = self.sessions.get(login)
-        if session is None:
-            raise ConfirmationError("открой профиль: подтверждения берутся из его сессии Steam")
+        """Запросы к mobileconf. Сначала — своя сессия из maFile, как у SDA.
+
+        Браузер нужен только тем аккаунтам, у кого в maFile нет токенов и нечем
+        войти самому: Steam операции над подтверждениями от браузерной сессии
+        принимает неохотно, а от мобильной — как от родной.
+        """
         mafile = self.mafiles.get(login.lower())
         if mafile is None:
             raise ConfirmationError("нет maFile для этого аккаунта")
+
+        if self.steam_web.possible(mafile, self.accounts.get(login)):
+            try:
+                context = await self.steam_web.context_for(
+                    login, mafile, self.proxy_for(login), self.accounts.get(login)
+                )
+                return context, mafile
+            except Exception as exc:  # noqa: BLE001 — попробуем через браузер
+                if login not in self.sessions:
+                    raise ConfirmationError(f"сессия Steam из maFile не поднялась: {exc}") from None
+                self.log.warning("[%s] сессия из maFile не поднялась (%s) — беру из браузера", login, exc)
+
+        session = self.sessions.get(login)
+        if session is None:
+            raise ConfirmationError(
+                f"подтверждения недоступны: {self.steam_web.why_not(mafile, self.accounts.get(login))}; "
+                "как запасной путь — открой профиль"
+            )
         context = await session.context("main")
         await prepare_mobile(context)        # Steam ждёт от этих запросов мобильный клиент
         return context.request, mafile
@@ -401,6 +430,7 @@ class ProfileManager:
             return {"closed": True}
 
     async def close_all(self) -> None:
+        await self.steam_web.close()
         for login in list(self.sessions):
             try:
                 await self.close_profile(login)

@@ -154,6 +154,17 @@ def load_mails(path: Path) -> list[Mailbox]:
     return boxes
 
 
+def _session_field(session, *names: str) -> str:
+    """Поле из блока Session maFile. SDA пишет их по-разному в разных версиях."""
+    if not isinstance(session, dict):
+        return ""
+    for name in names:
+        value = session.get(name)
+        if value:
+            return str(value)
+    return ""
+
+
 def load_mafiles(directory: Path) -> dict[str, MaFile]:
     """Индекс по account_name ВНУТРИ файла, а не по имени файла."""
     if not directory.exists():
@@ -183,7 +194,7 @@ def load_mafiles(directory: Path) -> dict[str, MaFile]:
         if not shared:
             # зашифрованный maFile (SDA с паролем) — отличаем от битого
             if data.get("encryption_iv") or data.get("encryption_salt"):
-                index[str(account_name).lower()] = MaFile(str(account_name), "", "", "", p)
+                index[str(account_name).lower()] = MaFile(str(account_name), "", "", "", path=p)
             continue
 
         steam_id = str(
@@ -198,9 +209,12 @@ def load_mafiles(directory: Path) -> dict[str, MaFile]:
             identity_secret=str(data.get("identity_secret") or data.get("IdentitySecret") or ""),
             steam_id=steam_id,
             device_id=str(data.get("device_id") or data.get("DeviceID") or ""),
+            access_token=_session_field(session, "AccessToken", "access_token"),
+            refresh_token=_session_field(session, "RefreshToken", "refresh_token"),
             path=p,
         )
-        register_secret(mafile.shared_secret, mafile.identity_secret)
+        register_secret(mafile.shared_secret, mafile.identity_secret,
+                        mafile.access_token, mafile.refresh_token)
         index[mafile.account_name.lower()] = mafile
     return index
 
