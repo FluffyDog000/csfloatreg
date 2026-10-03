@@ -449,7 +449,7 @@ async def run_conf_probe(args) -> int:
         await manager.steam_web.close()
         return 0
 
-    print("\n6) Подтверждаю")
+    print("\n6) Подтверждаю (ответ Steam целиком — ниже, в предупреждениях лога)")
     try:
         result = await respond_confirmations(context, mafile, steam_time, items, accept=True)
         print(f"   ГОТОВО: {result}")

@@ -142,6 +142,48 @@ def _payload(body: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+#: Steam кладёт настоящую причину отказа в заголовок x-eresult, а в теле
+#: оставляет голое {"success": false}. Имена кодов — из перечисления EResult.
+ERESULT = {
+    "1": "OK",
+    "2": "Fail — общий отказ",
+    "5": "InvalidPassword — не приняты данные входа",
+    "8": "InvalidParam — Steam не понял параметры запроса",
+    "9": "FileNotFound — подтверждения или обмена уже нет",
+    "10": "Busy — Steam занят, попробуй позже",
+    "11": "InvalidState — операция сейчас невозможна (состояние аккаунта или обмена)",
+    "15": "AccessDenied — аккаунту это действие запрещено",
+    "16": "Timeout",
+    "20": "ServiceUnavailable — служба Steam недоступна",
+    "24": "InsufficientPrivilege — недостаточно прав (обмены аккаунту закрыты)",
+    "25": "LimitExceeded — превышен предел",
+    "26": "Revoked — отозвано",
+    "27": "Expired — истекло",
+    "28": "AlreadyRedeemed — уже выполнено",
+    "29": "DuplicateRequest — такой запрос уже был",
+    "42": "NoMatch — не найдено",
+    "84": "RateLimitExceeded — Steam придерживает запросы",
+    "88": "TwoFactorCodeMismatch — не сошёлся код аутентификатора (часы или секрет)",
+    "101": "NeedCaptcha — Steam просит капчу",
+    "108": "TooManyPending — слишком много ожидающих операций",
+}
+
+
+def eresult_of(response) -> str:
+    """Код отказа из заголовков ответа. Пустая строка — Steam его не прислал."""
+    headers = {}
+    try:
+        headers = {str(k).lower(): str(v) for k, v in dict(response.headers).items()}
+    except Exception:  # noqa: BLE001 — заголовки не обязаны быть
+        return ""
+    code = headers.get("x-eresult", "").strip()
+    message = headers.get("x-error_message", "").strip()
+    if not code and not message:
+        return ""
+    known = ERESULT.get(code, f"код {code}" if code else "")
+    return " | ".join(part for part in (known, message) if part)
+
+
 #: Пауза между попытками: Steam считает частые обращения и начинает придерживать.
 RETRY_PAUSE_S = 2.5
 
@@ -283,16 +325,22 @@ async def respond(
         if payload is not None and payload.get("success"):
             log.info("Подтверждение прошло: %s/%s, тег %s", endpoint, client, tag)
             return {"done": len(items), "accept": accept}
-        if _rate_limited(response.status, body):
+        reason = eresult_of(response)
+        if reason:
+            last_error = f"Steam: {reason}"
+        if _rate_limited(response.status, body) or reason.startswith("RateLimitExceeded"):
             raise RateLimited(
                 "Steam придерживает запросы с этого IP (429). Подожди несколько минут "
                 "или смени прокси аккаунта: перебирать способы сейчас бессмысленно"
             )
 
-        last_error = _explain(response.status, body) if payload is None else _failure(payload)
-        # сырой ответ в лог: без него отказ Steam невозможно отличить от нашей ошибки
-        log.warning("Подтверждение не принято (%s/%s, тег %s): HTTP %s %s",
-                    endpoint, client, tag, response.status, " ".join(body.split())[:160])
+        if not reason:
+            last_error = _explain(response.status, body) if payload is None else _failure(payload)
+        # сырой ответ и код отказа: без них отказ Steam не отличить от нашей ошибки
+        log.warning("Подтверждение не принято (%s/%s, тег %s): HTTP %s%s %s",
+                    endpoint, client, tag, response.status,
+                    f", x-eresult {reason}" if reason else " (x-eresult не прислан)",
+                    " ".join(body.split())[:120])
         await asyncio.sleep(RETRY_PAUSE_S)      # частить нельзя: Steam считает обращения
 
     raise ConfirmationError(f"{last_error or 'Steam не ответил'} [перебрано: {', '.join(tried)}]")
