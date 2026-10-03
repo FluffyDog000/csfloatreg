@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import secrets
 import time
 from pathlib import Path
 
@@ -165,11 +166,13 @@ class SteamWeb:
     def _cookies(self, tokens: dict) -> list[dict]:
         """Те же cookies, что ставит мобильное приложение Steam."""
         value = f"{tokens['steam_id']}%7C%7C{tokens['access_token']}"
-        session_id = base64.b16encode(tokens["steam_id"].encode()[:12]).decode().lower()[:24]
+        # SDA генерирует sessionid случайными 32 hex-символами и представляется
+        # приложением версии 2.1.3 — повторяем дословно
+        session_id = secrets.token_hex(16)
         pairs = (
             ("steamLoginSecure", value),
             ("sessionid", session_id),
-            ("mobileClientVersion", "777777 3.6.4"),
+            ("mobileClientVersion", "0 (2.1.3)"),
             ("mobileClient", "android"),
             ("Steam_Language", "english"),
             ("dob", ""),

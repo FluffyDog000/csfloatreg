@@ -24,6 +24,17 @@ HEADERS = {
     "Referer": f"{BASE}/conf",
 }
 
+
+def _headers(params: dict) -> dict:
+    """Referer — полный адрес страницы подтверждений с подписью, как шлёт SDA.
+
+    В SteamDesktopAuthenticator (GenerateConfirmationURL) заголовок Referer
+    собирается из тех же параметров, что и запрос. Голый /mobileconf/conf —
+    наша вольность, а Steam к мелочам мобильного клиента придирчив.
+    """
+    query = urlencode({**params, "tag": "conf"})
+    return {**HEADERS, "Referer": f"{BASE}/conf?{query}"}
+
 #: Сначала пробуем современный клиент (react), потом старый (android).
 CLIENTS = ("react", "android")
 
@@ -158,8 +169,8 @@ async def fetch(request, mafile: MaFile, steam_time, *, timeout_ms: int = 20000)
     for client in CLIENTS:
         response = await request.get(
             f"{BASE}/getlist",
-            params=_params(mafile, steam_time, "conf", client),
-            headers=HEADERS,
+            params=(listing := _params(mafile, steam_time, "conf", client)),
+            headers=_headers(listing),
             timeout=timeout_ms,
         )
         body = await response.text()
@@ -184,8 +195,8 @@ async def details(request, mafile: MaFile, steam_time, conf_id: str, *, timeout_
     for client in CLIENTS:
         response = await request.get(
             f"{BASE}/details/{conf_id}",
-            params=_params(mafile, steam_time, f"details{conf_id}", client),
-            headers=HEADERS, timeout=timeout_ms,
+            params=(detail := _params(mafile, steam_time, f"details{conf_id}", client)),
+            headers=_headers(detail), timeout=timeout_ms,
         )
         body = await response.text()
         payload = _payload(body)
@@ -234,7 +245,7 @@ async def respond(
         if endpoint == "ajaxop":
             single = dict(params, op=op, cid=items[0].id, ck=items[0].nonce)
             response = await request.get(
-                f"{BASE}/ajaxop", params=single, headers=HEADERS, timeout=timeout_ms
+                f"{BASE}/ajaxop", params=single, headers=_headers(params), timeout=timeout_ms
             )
         else:
             fields = [(k, str(v)) for k, v in params.items()] + [("op", op)]
@@ -244,7 +255,8 @@ async def respond(
             response = await request.post(
                 f"{BASE}/multiajaxop",
                 data=urlencode(fields),
-                headers={**HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
+                headers={**_headers(params),
+                         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
                 timeout=timeout_ms,
             )
 
