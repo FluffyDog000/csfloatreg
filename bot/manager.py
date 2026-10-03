@@ -56,7 +56,6 @@ class ProfileManager:
         # подтверждения умеют обходиться без браузера: сессия строится из maFile
         self.steam_web = SteamWeb(cfg, self.log)
         self.steam_web.steam_time = steam_time
-        self._browser_path_said: set[str] = set()
         self._locks: dict[str, asyncio.Lock] = {}
         self._confs: dict[str, dict[str, Confirmation]] = {}   # последний список подтверждений
         self.reload_inputs()
@@ -279,18 +278,17 @@ class ProfileManager:
                 context = await self.steam_web.context_for(
                     login, mafile, self.proxy_for(login), self.accounts.get(login)
                 )
+                self.log.info("[%s] подтверждения: своя сессия Steam из maFile", login)
                 return context, mafile
             except Exception as exc:  # noqa: BLE001 — попробуем через браузер
                 if login not in self.sessions:
                     raise ConfirmationError(f"сессия Steam из maFile не поднялась: {exc}") from None
                 self.log.warning("[%s] сессия из maFile не поднялась (%s) — беру из браузера", login, exc)
 
-        # один раз на аккаунт говорим, почему пошли через браузер: иначе снова
-        # будет непонятно, старый код виноват или данных не хватает
-        if login not in self._browser_path_said:
-            self._browser_path_said.add(login)
-            self.log.info("[%s] подтверждения через браузер: %s", login,
-                          self.steam_web.why_not(mafile, self.accounts.get(login)))
+        # каждый раз говорим, какой дорогой пошли: без этого отказ Steam не
+        # отличить от «запущен старый код»
+        self.log.info("[%s] подтверждения: сессия браузера — %s", login,
+                      self.steam_web.why_not(mafile, self.accounts.get(login)))
 
         session = self.sessions.get(login)
         if session is None:
