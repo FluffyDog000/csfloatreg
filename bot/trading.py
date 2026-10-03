@@ -449,9 +449,9 @@ async def account_limits(request, steam_id: str, *, timeout_ms: int = 20000) -> 
 def limits_problem(limits: dict) -> str:
     """Человеческая причина, по которой аккаунту закрыты обмены. Пусто — всё в порядке."""
     if limits.get("isLimitedAccount") == "1":
-        return ("аккаунт ограниченный (limited): на нём не было покупки на $5, "
-                "и Steam не даёт ему отдавать предметы — подтверждение такого обмена "
-                "он отклоняет молча")
+        return ("аккаунт ограниченный (limited): покупки на $5 на нём не было. "
+                "Steam урезает таким аккаунтам работу с предметами, и отказ в подтверждении "
+                "скорее всего отсюда — но это предположение, а не ответ Steam")
     if limits.get("tradeBanState") not in (None, "", "None"):
         return f"Steam держит на аккаунте торговое ограничение: {limits['tradeBanState']}"
     return ""

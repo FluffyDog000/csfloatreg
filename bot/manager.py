@@ -393,8 +393,9 @@ class ProfileManager:
             if len(gone) != len(items):
                 blocked = limits_problem(await account_limits(request, mafile.steam_id, timeout_ms=timeout))
                 if blocked:
-                    self.log.error("[%s] подтверждение невозможно: %s", login, blocked)
-                    raise ConfirmationError(blocked) from None
+                    # не выдаём догадку за приговор: это зацепка, а не ответ Steam
+                    self.log.error("[%s] отказ без объяснения. Замечено: %s", login, blocked)
+                    raise ConfirmationError(f"Steam отказал молча. Замечено: {blocked}") from None
                 dead = await self._dead_offers(request, mafile, items, timeout)
                 if dead:
                     for item in items:
