@@ -314,9 +314,21 @@ class ProfileManager:
             raise ConfirmationError("этих подтверждений больше нет — обнови список")
 
         timeout = int(self.cfg.get("timeouts.action_ms", 20000))
-        result = await respond_confirmations(
-            request, mafile, self.steam_time, items, accept=accept, timeout_ms=timeout
-        )
+        try:
+            result = await respond_confirmations(
+                request, mafile, self.steam_time, items, accept=accept, timeout_ms=timeout
+            )
+        except ConfirmationError as exc:
+            # Steam иногда отвечает отказом на операцию, которую всё же выполнил.
+            # Спрашиваем список заново: пропало из него — значит прошло.
+            left = {c.id for c in await fetch_confirmations(request, mafile, self.steam_time, timeout_ms=timeout)}
+            gone = [item.id for item in items if item.id not in left]
+            if len(gone) != len(items):
+                self.log.error("[%s] подтверждение не прошло: %s", login, exc)
+                raise
+            self.log.warning("[%s] Steam ответил отказом (%s), но подтверждений в списке больше нет —"
+                             " считаю выполненным", login, exc)
+            result = {"done": len(items), "accept": accept, "note": "Steam ответил отказом, но список пуст"}
         for item in items:
             known.pop(item.id, None)
         self.log.info("[%s] %s подтверждений: %d", login, "принято" if accept else "отклонено", len(items))

@@ -11,6 +11,7 @@ import dataclasses
 import json
 from urllib.parse import urlencode
 
+from .logging_setup import get_logger
 from .models import MaFile
 from .steam_guard import device_id as make_device_id
 
@@ -24,6 +25,12 @@ HEADERS = {
 
 #: Сначала пробуем современный клиент (react), потом старый (android).
 CLIENTS = ("react", "android")
+
+#: Тег участвует в подписи, и Steam ждёт на операции ровно «allow»/«cancel» —
+#: те же слова, что и в op. На собственные выдумки вроде «accept» он отвечает
+#: голым {"success": false} без единого слова объяснения. Старые теги остаются
+#: вторым заходом: вдруг где-то ещё принимаются.
+OP_TAGS = {True: ("allow", "accept"), False: ("cancel", "reject")}
 
 
 class ConfirmationError(RuntimeError):
@@ -110,6 +117,11 @@ def _failure(payload: dict) -> str:
             return str(payload[key])
     if payload.get("needauth"):
         return "Steam требует мобильный вход (needauth): cookies браузера ему не подходят"
+    if set(payload) <= {"success"}:
+        return (
+            "Steam отказал без объяснения. Обычно это устаревший список подтверждений "
+            "(нажми «Обновить» и повтори), разошедшиеся часы или чужой identity_secret"
+        )
     return json.dumps(payload, ensure_ascii=False)[:200]
 
 
@@ -147,32 +159,38 @@ async def respond(
     """Подтвердить или отклонить. Одно — через ajaxop, пачку — через multiajaxop."""
     if not items:
         raise ConfirmationError("нечего подтверждать")
-    tag = "accept" if accept else "reject"
     op = "allow" if accept else "cancel"
+    log = get_logger()
 
     last_error = ""
-    for client in CLIENTS:
-        params = _params(mafile, steam_time, tag, client)
-        if len(items) == 1:
-            single = dict(params, op=op, cid=items[0].id, ck=items[0].nonce)
-            response = await request.get(f"{BASE}/ajaxop", params=single, headers=HEADERS, timeout=timeout_ms)
-        else:
-            fields = [(k, str(v)) for k, v in params.items()] + [("op", op)]
-            for item in items:
-                fields.append(("cid[]", item.id))
-                fields.append(("ck[]", item.nonce))
-            response = await request.post(
-                f"{BASE}/multiajaxop",
-                data=urlencode(fields),
-                headers={**HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
-                timeout=timeout_ms,
-            )
-        body = await response.text()
-        payload = _payload(body)
-        if payload is None:
-            last_error = _explain(response.status, body)
-            continue
-        if payload.get("success"):
-            return {"done": len(items), "accept": accept}
-        last_error = _failure(payload)
+    for tag in OP_TAGS[bool(accept)]:
+        for client in CLIENTS:
+            params = _params(mafile, steam_time, tag, client)
+            if len(items) == 1:
+                single = dict(params, op=op, cid=items[0].id, ck=items[0].nonce)
+                response = await request.get(
+                    f"{BASE}/ajaxop", params=single, headers=HEADERS, timeout=timeout_ms
+                )
+            else:
+                fields = [(k, str(v)) for k, v in params.items()] + [("op", op)]
+                for item in items:
+                    fields.append(("cid[]", item.id))
+                    fields.append(("ck[]", item.nonce))
+                response = await request.post(
+                    f"{BASE}/multiajaxop",
+                    data=urlencode(fields),
+                    headers={**HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
+                    timeout=timeout_ms,
+                )
+            body = await response.text()
+            payload = _payload(body)
+            if payload is None:
+                last_error = _explain(response.status, body)
+                log.debug("Подтверждение (%s/%s): %s", tag, client, last_error)
+                continue
+            if payload.get("success"):
+                log.debug("Подтверждение прошло: op=%s tag=%s m=%s", op, tag, client)
+                return {"done": len(items), "accept": accept}
+            last_error = _failure(payload)
+            log.debug("Подтверждение (%s/%s) отклонено: %s", tag, client, last_error)
     raise ConfirmationError(last_error or "Steam не ответил")
