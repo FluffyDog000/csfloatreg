@@ -237,6 +237,8 @@ class ProfileManager:
             "offline_confirm": self.can_confirm_offline(login),
             "opened": login in self.sessions,
             "auto_confirm": bool(entry.get("auto_confirm")),
+            "limited": entry.get("limited"),
+            "limits_at": entry.get("limits_at", ""),
             "guard": self.guard(login),
             "delivery": entry.get("delivery") or {},
         }
@@ -341,6 +343,19 @@ class ProfileManager:
 
         async with self._lock(f"steam:{login}"):
             return await ensure_login(self, login, headful=headful, force=force)
+
+    async def check_limits(self, login: str) -> dict:
+        """Ограничен ли аккаунт. Ответ запоминаем: он меняется только после покупки."""
+        request, mafile = await self._mobile(login)
+        timeout = int(self.cfg.get("timeouts.action_ms", 20000))
+        limits = await account_limits(request, mafile.steam_id, timeout_ms=timeout)
+        if not limits:
+            raise ConfirmationError("Steam не отдал профиль — проверить ограничения не вышло")
+        trouble = limits_problem(limits)
+        self.bindings.set_field(login, "limited", limits.get("isLimitedAccount") == "1")
+        self.bindings.set_field(login, "limits_at", time.strftime("%Y-%m-%d %H:%M"))
+        self.log.info("[%s] %s", login, trouble or "ограничений нет: обмены разрешены")
+        return {"login": login, "limits": limits, "problem": trouble}
 
     async def confirmations(self, login: str) -> list[dict]:
         request, mafile = await self._mobile(login)

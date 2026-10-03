@@ -67,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
              "что отвечает Steam на список и на подтверждение (ничего не подтверждает)",
     )
     parser.add_argument(
+        "--limits", action="store_true",
+        help="проверить по всем аккаунтам, ограничен ли он (limited): такому Steam не даёт "
+             "отдавать предметы, и подтверждения обменов на нём не проходят",
+    )
+    parser.add_argument(
         "--sda-export", nargs="?", const="sda-export", metavar="ПАПКА",
         help="собрать папку maFiles для Steam Desktop Authenticator: он откроет все аккаунты "
              "сразу, с включённым автоподтверждением обменов",
@@ -180,6 +185,58 @@ async def run_reset(args) -> int:
             await results.update(login, module, status="new", stage="", error="", attempts=0)
         print(f"  сброшен: {login}")
     print(f"\nГотово: {len(bundles)} аккаунт(ов). Отпечатки в state/*.fp.json сохранены.")
+    return 0
+
+
+async def run_limits(args) -> int:
+    """Кто из аккаунтов ограничен. Ограниченный не может отдавать предметы."""
+    from bot.manager import ProfileManager
+    from bot.steam_guard import SteamTime
+
+    cfg, _selectors, _log_path = load_everything(args)
+    steam_time = SteamTime(cfg.get("steam.time_sync_url"), enabled=bool(cfg.get("steam.time_sync", True)))
+    await steam_time.sync(logging_setup.get_logger())
+    manager = ProfileManager(cfg, steam_time)
+    if manager.load_error:
+        print(f"\nВходные файлы не прочитались: {manager.load_error}", file=sys.stderr)
+        return 2
+
+    only = {x.strip() for x in (args.only or "").split(",") if x.strip()} if args.only else None
+    logins = [l for l in manager.accounts if (not only or l in only) and manager.can_confirm_offline(l)]
+    skipped = [l for l in manager.accounts if (not only or l in only) and l not in logins]
+    if not logins:
+        print("\nНи одного аккаунта с maFile и паролем — проверять нечем", file=sys.stderr)
+        return 2
+
+    print(f"\nПроверяю {len(logins)} аккаунт(ов). Ограниченному Steam не даёт отдавать предметы.\n")
+    gate = asyncio.Semaphore(3)
+    limited, free, failed = [], [], []
+
+    async def one(login: str) -> None:
+        async with gate:
+            try:
+                answer = await manager.check_limits(login)
+            except Exception as exc:  # noqa: BLE001 — один аккаунт не ломает обход
+                failed.append((login, str(exc)[:70]))
+                return
+            (limited if answer["problem"] else free).append(login)
+
+    await asyncio.gather(*(one(login) for login in logins))
+    await manager.steam_web.close()
+
+    print(f"  могут отдавать предметы : {len(free)}")
+    for login in sorted(free):
+        print(f"      {login}")
+    print(f"\n  ОГРАНИЧЕНЫ (нужна покупка на $5) : {len(limited)}")
+    for login in sorted(limited):
+        print(f"      {login}")
+    if failed:
+        print(f"\n  не проверились : {len(failed)}")
+        for login, why in failed:
+            print(f"      {login}: {why}")
+    if skipped:
+        print(f"\n  пропущены (нет maFile или пароля) : {', '.join(sorted(skipped))}")
+    print("\nОтметки сохранены в data/bindings.json и видны в карточке аккаунта.")
     return 0
 
 
@@ -874,6 +931,8 @@ def main() -> int:
             return asyncio.run(run_conf_probe(args))
         if args.sda_export:
             return run_sda_export(args)
+        if args.limits:
+            return asyncio.run(run_limits(args))
         if args.probe is not None:
             return asyncio.run(run_probe(args))
         if args.run or args.check:

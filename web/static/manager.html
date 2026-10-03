@@ -295,6 +295,14 @@ async function select(login) {
   f.appendChild(field('Пароль почты',card.mail_password));
   f.appendChild(field('Прокси',card.proxy,{copyable:false}));
   if(card.steam_id) f.appendChild(field('SteamID',card.steam_id));
+  if(card.limited===true||card.limited===false){
+    const v=card.limited
+      ? 'ограничен: отдавать предметы нельзя, нужна покупка на $5'
+      : 'нет: обмены разрешены';
+    const row=field('Ограничения'+(card.limits_at?' ('+card.limits_at+')':''),v,{copyable:false});
+    if(card.limited) row.querySelector('.val').style.color='#ff9c9c';
+    f.appendChild(row);
+  }
   const dl=card.delivery||{};
   if(dl.unlock_at||dl.unlock_text){
     const when=dl.unlock_at||dl.unlock_text;
