@@ -231,12 +231,13 @@ def plans(accept: bool, count: int) -> list[tuple[str, str, str]]:
     Steam на отказ не объясняется, поэтому вместо гадания пробуем все рабочие
     сочетания, какие знают SDA, steampy и node-steamcommunity.
     """
-    op_tag, legacy = OP_TAGS[bool(accept)]
+    op_tag, _legacy = OP_TAGS[bool(accept)]
+    # Запрос сверен с SDA и NebulaAuth — он правильный, поэтому перебирать
+    # экзотику незачем: лишние попытки только злят Steam, который считает
+    # обращения. Оставляем канонический способ и один запасной.
     if count > 1:
-        return [("multiajaxop", "react", op_tag), ("multiajaxop", "android", op_tag),
-                ("multiajaxop", "react", legacy)]
-    return [("ajaxop", "react", op_tag), ("ajaxop", "android", op_tag),
-            ("multiajaxop", "react", op_tag), ("ajaxop", "react", legacy)]
+        return [("multiajaxop", "react", op_tag), ("multiajaxop", "android", op_tag)]
+    return [("ajaxop", "react", op_tag), ("multiajaxop", "react", op_tag)]
 
 
 async def respond(

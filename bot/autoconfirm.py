@@ -31,7 +31,27 @@ class AutoConfirm:
         self._task: asyncio.Task | None = None
         self._last_sweep = 0.0
         self.accepted: dict[str, dict] = {}     # что и когда подтвердили
+        # когда можно снова пробовать подтверждение и сколько раз уже не вышло
+        self._retry_at: dict[str, tuple[float, int]] = {}
 
+
+    #: Отступ после неудачи: Steam считает обращения, частить нельзя.
+    BACKOFF_S = (60, 180, 600, 1800)
+
+    def _wait(self, conf_id: str) -> float:
+        """Сколько ещё ждать до следующей попытки по этому подтверждению."""
+        due, _tries = self._retry_at.get(conf_id, (0.0, 0))
+        return max(0.0, due - time.monotonic())
+
+    def _failed(self, ids: list[str]) -> None:
+        for conf_id in ids:
+            _due, tries = self._retry_at.get(conf_id, (0.0, 0))
+            pause = self.BACKOFF_S[min(tries, len(self.BACKOFF_S) - 1)]
+            self._retry_at[conf_id] = (time.monotonic() + pause, tries + 1)
+
+    def _succeeded(self, ids: list[str]) -> None:
+        for conf_id in ids:
+            self._retry_at.pop(conf_id, None)
 
     @property
     def hopeless(self) -> dict:
@@ -139,13 +159,24 @@ class AutoConfirm:
             await self.manager.open_profile(login, headful=bool(self.cfg.get("confirm.headful", False)))
         try:
             items = await self.manager.confirmations(login)
-            ids = [item["id"] for item in items if item["id"] not in self.hopeless]
+            ids = [
+                item["id"] for item in items
+                if item["id"] not in self.hopeless and not self._wait(item["id"])
+            ]
             if not ids:
+                waiting = [i["id"] for i in items if self._wait(i["id"])]
+                if waiting:
+                    self.log.debug("[%s] жду паузу по подтверждениям %s", login, waiting)
                 return 0
             try:
                 await self.manager.respond_confirmation(login, ids, accept=True)
             except OfferGone:
                 raise        # менеджер уже запомнил: больше это подтверждение не трогаем
+            except Exception:
+                # не вышло — следующая попытка не сразу, а с нарастающей паузой
+                self._failed(ids)
+                raise
+            self._succeeded(ids)
             self.accepted[login] = {
                 "count": len(ids), "at": time.strftime("%H:%M:%S"),
                 "what": "; ".join(i.get("headline") or "" for i in items).strip("; ")[:120],
