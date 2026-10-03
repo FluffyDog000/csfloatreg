@@ -261,7 +261,7 @@ async def run_conf_probe(args) -> int:
     from bot.manager import ProfileManager
     from bot.steam_guard import SteamTime
     from bot.steam_web import token_alive, token_expiry, token_payload
-    from bot.trading import PAGE_HEADERS, visible_text
+    from bot.trading import offer_missing, visible_text
 
     def shown(value: str, keep: int = 6) -> str:
         return f"{value[:keep]}…{value[-4:]} ({len(value)} симв.)" if value else "НЕТ"
@@ -365,15 +365,9 @@ async def run_conf_probe(args) -> int:
             print(f"   подробности {item.id}: НЕ ОТДАНЫ ({str(exc)[:90]})")
         if not item.creator_id:
             continue
-        try:
-            page = await context.get(
-                f"https://steamcommunity.com/tradeoffer/{item.creator_id}/",
-                headers=PAGE_HEADERS, timeout=20000,
-            )
-            text = visible_text(await page.text())
-            print(f"   страница обмена {item.creator_id}: HTTP {page.status}, {text[:200] or 'пусто'}")
-        except Exception as exc:  # noqa: BLE001
-            print(f"   страница обмена {item.creator_id}: не открылась ({str(exc)[:90]})")
+        # судим по списку исходящих: страница обмена отправителю всегда врёт
+        missing = await offer_missing(context, mafile.steam_id, item.creator_id)
+        print(f"   обмен {item.creator_id}: {missing or 'на месте среди исходящих'}")
 
     if not args.accept:
         print("\n6) Подтверждение не отправлено: добавь --accept, если нужно действительно подтвердить")

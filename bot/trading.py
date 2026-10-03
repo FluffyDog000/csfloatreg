@@ -418,36 +418,36 @@ async def trade_page_problem(request, partner: TradePartner, *, timeout_ms: int 
     return ""
 
 
-#: Так Steam говорит, что обмена больше нет: отменён, принят или истёк.
-_OFFER_GONE = (
-    "trade offer is no longer valid",
-    "no longer valid",
-    "has been canceled",
-    "has been cancelled",
-    "is no longer available",
-    "trade offer has been declined",
-)
+#: Так выглядит страница списка исходящих обменов — по ней и судим.
+_SENT_PAGE_MARKERS = ("tradeoffer", "trade offer")
 
 
-async def offer_gone(request, offer_id: str, *, timeout_ms: int = 20000) -> str:
-    """Почему обмена больше нет. Пустая строка — обмен на месте.
+async def offer_missing(request, steam_id: str, offer_id: str, *, timeout_ms: int = 20000) -> str:
+    """Нет ли обмена среди исходящих. Пустая строка — обмен на месте.
 
-    Нужно, когда Steam отказывает в подтверждении без объяснения: чаще всего
-    это подтверждение-сирота от обмена, которого уже не существует.
+    Страницу /tradeoffer/<id>/ для этого использовать нельзя: она написана для
+    получателя, а отправителю Steam показывает на ней «This trade offer is no
+    longer valid» даже для совершенно живого обмена. Единственный честный
+    источник — собственный список исходящих.
     """
+    if not steam_id or not offer_id:
+        return ""
     try:
         response = await request.get(
-            f"{BASE}/tradeoffer/{offer_id}/", headers=PAGE_HEADERS, timeout=timeout_ms
+            f"{BASE}/profiles/{steam_id}/tradeoffers/sent/",
+            headers=PAGE_HEADERS, timeout=timeout_ms,
         )
-        text = visible_text(await response.text())
-    except Exception:  # noqa: BLE001 — подсказка не обязана работать
+        body = await response.text()
+    except Exception:  # noqa: BLE001 — проверка не обязана работать
         return ""
-    low = text.lower()
-    for marker in _OFFER_GONE:
-        index = low.find(marker)
-        if index >= 0:
-            return text[max(0, index - 60) : index + 90].strip()
-    return ""
+    low = body.lower()
+    if response.status != 200 or _looks_like_login(body, _url_of(response)):
+        return ""
+    if not any(marker in low for marker in _SENT_PAGE_MARKERS):
+        return ""                                   # страница не та — молчим
+    if str(offer_id) in body:
+        return ""                                   # обмен на месте
+    return "обмена нет среди исходящих: отменён, истёк или уже принят"
 
 
 _OFFER_IN_TEXT = re.compile(r"tradeofferid[_\"':= ]+(\d{6,})")

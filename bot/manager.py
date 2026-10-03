@@ -24,7 +24,7 @@ from .mailbox import attach_mailboxes, mail_source, mail_stats, replace_mailbox
 from .models import Account, Bundle, MaFile, Mailbox, Proxy
 from .steam_guard import seconds_until_next_code
 from .steam_web import SteamWeb
-from .trading import offer_gone
+from .trading import offer_missing
 from .storage import StateStore
 
 
@@ -376,7 +376,7 @@ class ProfileManager:
             left = {c.id for c in await fetch_confirmations(request, mafile, self.steam_time, timeout_ms=timeout)}
             gone = [item.id for item in items if item.id not in left]
             if len(gone) != len(items):
-                dead = await self._dead_offers(request, items, timeout)
+                dead = await self._dead_offers(request, mafile, items, timeout)
                 if dead:
                     for item in items:
                         self.hopeless[item.id] = dead
@@ -392,17 +392,18 @@ class ProfileManager:
         self.log.info("[%s] %s подтверждений: %d", login, "принято" if accept else "отклонено", len(items))
         return result
 
-    async def _dead_offers(self, request, items, timeout: int) -> str:
+    async def _dead_offers(self, request, mafile, items, timeout: int) -> str:
         """Описание обменов, которых уже нет. Пусто — все на месте.
 
-        Подтверждение-сирота остаётся в списке и выглядит как обычное, но
-        Steam отказывает в нём молча: обмен отменён, истёк или уже принят.
+        Подтверждение-сирота остаётся в списке и выглядит как обычное, но Steam
+        отказывает в нём молча. Проверяем по собственному списку исходящих: это
+        единственное место, где отправителю видно состояние своего обмена.
         """
         reasons = []
         for item in items:
             if not item.creator_id:
                 continue
-            why = await offer_gone(request, item.creator_id, timeout_ms=timeout)
+            why = await offer_missing(request, mafile.steam_id, item.creator_id, timeout_ms=timeout)
             if why:
                 reasons.append(f"обмена {item.creator_id} больше нет ({why})")
         return "; ".join(reasons)
