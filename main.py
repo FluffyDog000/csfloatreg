@@ -209,7 +209,7 @@ async def run_limits(args) -> int:
         print("\nНи одного аккаунта с maFile и паролем — проверять нечем", file=sys.stderr)
         return 2
 
-    print(f"\nПроверяю {len(logins)} аккаунт(ов). Ограниченному Steam не даёт отдавать предметы.\n")
+    print(f"\nПроверяю {len(logins)} аккаунт(ов).\n")
     gate = asyncio.Semaphore(3)
     limited, free, failed = [], [], []
 
@@ -228,7 +228,7 @@ async def run_limits(args) -> int:
     print(f"  без ограничений : {len(free)}")
     for login in sorted(free):
         print(f"      {login}")
-    print(f"\n  ОГРАНИЧЕНЫ (limited, покупки на $5 не было) : {len(limited)}")
+    print(f"\n  ограниченные (limited, покупки на $5 не было) : {len(limited)}")
     for login in sorted(limited):
         print(f"      {login}")
     if failed:
@@ -398,7 +398,8 @@ async def run_conf_probe(args) -> int:
     print(f"   {limits or 'профиль не ответил'}")
     trouble = limits_problem(limits)
     if trouble:
-        print(f"   ВОТ ПРИЧИНА: {trouble}")
+        print(f"   {trouble}")
+        print("   (само по себе это обмены не запрещает: на таком же аккаунте подтверждение проходило)")
 
     print("\n5) Список подтверждений")
     try:
