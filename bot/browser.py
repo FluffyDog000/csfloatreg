@@ -40,6 +40,19 @@ _TELEMETRY_MARKERS = (
 )
 
 #: Как Steam называет языки в своей cookie Steam_Language.
+#: Браузер под автоматизацию приезжает без push-уведомлений: сборка Firefox для
+#: Playwright не держит соединение с push-сервисом Mozilla, и подписка обрывается
+#: ошибкой «Error retrieving push subscription». Живому браузеру это не свойственно,
+#: а CSFloat без уведомлений не пускает в продавцы — возвращаем как у людей.
+#: Что угодно отсюда перебивается ключом browser.firefox_prefs в config.yaml.
+_DEFAULT_FIREFOX_PREFS = {
+    "dom.push.enabled": True,
+    "dom.push.connection.enabled": True,
+    "dom.push.serverURL": "wss://push.services.mozilla.com/",
+    "dom.webnotifications.enabled": True,
+    "dom.serviceWorkers.enabled": True,
+}
+
 _STEAM_LANGUAGES = {
     "en": "english", "ru": "russian", "es": "spanish", "fr": "french",
     "de": "german", "pt": "portuguese", "pl": "polish", "tr": "turkish",
@@ -157,7 +170,22 @@ class BrowserSession:
 
         if self._persistent is not None:
             await self.force_site_language(self._persistent)
+            await self.allow_notifications(self._persistent)
         return self
+
+    async def allow_notifications(self, context) -> None:
+        """Разрешение на уведомления для CSFloat, без всплывающего вопроса.
+
+        Продавцу CSFloat уведомления обязательны (шаг 2 мастера Seller Onboard),
+        а в headless-профиле некому нажать «Разрешить». Выдаём право только
+        этому адресу: остальные сайты пусть спрашивают, как у живого человека.
+        """
+        origin = str(self.cfg.get("csfloat.base_url") or "https://csfloat.com").rstrip("/")
+        try:
+            await context.grant_permissions(["notifications"], origin=origin)
+            self.log.debug("Уведомления разрешены для %s", origin)
+        except Exception as exc:  # noqa: BLE001 — не повод останавливать запуск
+            self.log.debug("Не удалось выдать право на уведомления: %s", exc)
 
     async def force_site_language(self, context) -> None:
         """Явно просим Steam говорить на нужном языке.
@@ -182,6 +210,10 @@ class BrowserSession:
             self.log.debug("Язык сайтов Steam закреплён: %s", steam_name)
         except Exception as exc:  # noqa: BLE001 — не повод останавливать запуск
             self.log.debug("Не удалось поставить cookie языка: %s", exc)
+
+    def _firefox_prefs(self) -> dict:
+        """Настройки Firefox: наши по умолчанию, поверх — из config.yaml."""
+        return {**_DEFAULT_FIREFOX_PREFS, **(self.cfg.get("browser.firefox_prefs") or {})}
 
     def _headless_mode(self):
         """На Linux без DISPLAY headful возможен только через Xvfb."""
@@ -286,10 +318,10 @@ class BrowserSession:
         }
         if self.cfg.get("browser.executable_path"):
             options["executable_path"] = self.cfg.get("browser.executable_path")
-        prefs = self.cfg.get("browser.firefox_prefs") or {}
+        prefs = self._firefox_prefs()
         if prefs:
-            options["firefox_user_prefs"] = dict(prefs)
-            self.log.info("Настройки Firefox применены: %s", ", ".join(f"{k}={v}" for k, v in prefs.items()))
+            options["firefox_user_prefs"] = prefs
+            self.log.debug("Настройки Firefox: %s", ", ".join(f"{k}={v}" for k, v in prefs.items()))
 
         # geoip подгоняет под IP и таймзону, и язык. Испанский прокси = испанский
         # Steam, а селекторы у нас по английскому тексту. Язык закрепляем, часовой
@@ -373,8 +405,8 @@ class BrowserSession:
             options["locale"] = str(forced)
         if self.cfg.get("browser.executable_path"):
             options["executable_path"] = self.cfg.get("browser.executable_path")
-        if engine != "chromium" and self.cfg.get("browser.firefox_prefs"):
-            options["firefox_user_prefs"] = dict(self.cfg.get("browser.firefox_prefs"))
+        if engine != "chromium":
+            options["firefox_user_prefs"] = self._firefox_prefs()
         self.browser = await launcher.launch(**options)
 
     # ── контексты и страницы ─────────────────────────────────
@@ -413,6 +445,7 @@ class BrowserSession:
             await context.add_init_script(_STEALTH_JS)
 
         await self.force_site_language(context)
+        await self.allow_notifications(context)
         self._contexts[name] = context
         return context
 
