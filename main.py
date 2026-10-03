@@ -261,7 +261,7 @@ async def run_conf_probe(args) -> int:
     from bot.manager import ProfileManager
     from bot.steam_guard import SteamTime
     from bot.steam_web import token_alive, token_expiry, token_payload
-    from bot.trading import offer_missing, visible_text
+    from bot.trading import account_limits, limits_problem, offer_missing, visible_text
 
     def shown(value: str, keep: int = 6) -> str:
         return f"{value[:keep]}…{value[-4:]} ({len(value)} симв.)" if value else "НЕТ"
@@ -333,6 +333,13 @@ async def run_conf_probe(args) -> int:
           + ("" if str(payload.get("sub") or "") == str(mafile.steam_id)
              else "  <-- ЭТО НЕ ТОТ STEAMID, ЧТО В maFile!"))
     print(f"   прокси          : {manager.proxy_for(login).safe() if manager.proxy_for(login) else 'без прокси'}")
+
+    print("\n4б) Ограничения аккаунта глазами Steam")
+    limits = await account_limits(context, mafile.steam_id)
+    print(f"   {limits or 'профиль не ответил'}")
+    trouble = limits_problem(limits)
+    if trouble:
+        print(f"   ВОТ ПРИЧИНА: {trouble}")
 
     print("\n5) Список подтверждений")
     try:

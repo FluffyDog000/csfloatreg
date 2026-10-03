@@ -418,6 +418,45 @@ async def trade_page_problem(request, partner: TradePartner, *, timeout_ms: int 
     return ""
 
 
+#: Профиль в XML отдаёт то, что скрыто на странице: ограничен ли аккаунт.
+_XML_FIELDS = ("isLimitedAccount", "tradeBanState", "vacBanned", "privacyState")
+
+
+async def account_limits(request, steam_id: str, *, timeout_ms: int = 20000) -> dict:
+    """Ограничения аккаунта глазами Steam.
+
+    Ограниченный (limited) аккаунт — тот, на котором не было покупки на $5.
+    Получать предметы он может, а отдавать нет, и подтверждение обмена
+    с отдачей Steam отклоняет молча. Это та самая «неразлимиченность».
+    """
+    if not steam_id:
+        return {}
+    try:
+        response = await request.get(
+            f"{BASE}/profiles/{steam_id}/?xml=1", headers=PAGE_HEADERS, timeout=timeout_ms
+        )
+        body = await response.text()
+    except Exception:  # noqa: BLE001 — проверка не обязана работать
+        return {}
+    found = {}
+    for field in _XML_FIELDS:
+        match = re.search(rf"<{field}>(?:<!\[CDATA\[)?\s*([^<\]]*)", body)
+        if match:
+            found[field] = match.group(1).strip()
+    return found
+
+
+def limits_problem(limits: dict) -> str:
+    """Человеческая причина, по которой аккаунту закрыты обмены. Пусто — всё в порядке."""
+    if limits.get("isLimitedAccount") == "1":
+        return ("аккаунт ограниченный (limited): на нём не было покупки на $5, "
+                "и Steam не даёт ему отдавать предметы — подтверждение такого обмена "
+                "он отклоняет молча")
+    if limits.get("tradeBanState") not in (None, "", "None"):
+        return f"Steam держит на аккаунте торговое ограничение: {limits['tradeBanState']}"
+    return ""
+
+
 #: Так выглядит страница списка исходящих обменов — по ней и судим.
 _SENT_PAGE_MARKERS = ("tradeoffer", "trade offer")
 
