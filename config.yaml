@@ -50,6 +50,11 @@ browser:
   enable_cache: true
   disable_ublock: false      # диагностика: включи, если страница остаётся пустой
   executable_path: null      # путь к конкретному бинарнику браузера, если нужен свой
+  addons:                    # расширения в каждом профиле: имя с addons.mozilla.org,
+    - csgofloat              # прямая ссылка на .xpi или путь к распакованной папке.
+                             # csgofloat — это CSFloat Market Checker, его просит мастер
+                             # продавца. Скачивается один раз в data/addons.
+                             # Пустой список — профили без расширений.
   firefox_prefs: {}          # диагностика соединения через прокси. Полный набор,
                              # когда конкретный сайт отдаёт 504, а другие открываются:
                              #   network.http.http3.enable: false      (QUIC)

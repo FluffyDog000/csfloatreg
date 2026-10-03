@@ -19,6 +19,7 @@ import time
 from functools import partial
 from pathlib import Path
 
+from . import addons
 from .errors import BrowserNotInstalled, NetworkError
 from .models import Proxy
 from .proxy_relay import SocksRelay, maybe_relay
@@ -45,6 +46,12 @@ _TELEMETRY_MARKERS = (
 #: ошибкой «Error retrieving push subscription». Живому браузеру это не свойственно,
 #: а CSFloat без уведомлений не пускает в продавцы — возвращаем как у людей.
 #: Что угодно отсюда перебивается ключом browser.firefox_prefs в config.yaml.
+#: Расширения в каждом профиле. csgofloat — это CSFloat Market Checker, тот
+#: самый, что просит мастер продавца на первом шаге. Список меняется ключом
+#: browser.addons: имя с addons.mozilla.org, прямая ссылка на .xpi или путь к
+#: распакованной папке. Пустой список — без расширений.
+_DEFAULT_ADDONS = ["csgofloat"]
+
 _DEFAULT_FIREFOX_PREFS = {
     "dom.push.enabled": True,
     "dom.push.connection.enabled": True,
@@ -211,6 +218,14 @@ class BrowserSession:
         except Exception as exc:  # noqa: BLE001 — не повод останавливать запуск
             self.log.debug("Не удалось поставить cookie языка: %s", exc)
 
+    async def _addon_paths(self) -> list[str]:
+        """Распакованные расширения для запуска: Camoufox других не принимает."""
+        entries = self.cfg.get("browser.addons", _DEFAULT_ADDONS)
+        if not entries:
+            return []
+        root = Path(self.cfg.path_for("data")) / "addons"
+        return await addons.ensure(entries, root, self.log)
+
     def _firefox_prefs(self) -> dict:
         """Настройки Firefox: наши по умолчанию, поверх — из config.yaml."""
         return {**_DEFAULT_FIREFOX_PREFS, **(self.cfg.get("browser.firefox_prefs") or {})}
@@ -318,6 +333,9 @@ class BrowserSession:
         }
         if self.cfg.get("browser.executable_path"):
             options["executable_path"] = self.cfg.get("browser.executable_path")
+        extensions = await self._addon_paths()
+        if extensions:
+            options["addons"] = extensions
         prefs = self._firefox_prefs()
         if prefs:
             options["firefox_user_prefs"] = prefs

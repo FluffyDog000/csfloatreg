@@ -408,10 +408,14 @@ function renderConfs(login, box, items){
     row.appendChild(head);
     (c.summary||[]).forEach(line=>row.appendChild(el('div','muted',line)));
     const acts=el('div','row'); acts.style.marginTop='7px';
-    const ok=el('button','primary',c.accept||'Подтвердить');
+    // подписи у Steam свои («Send Offer»), и на кнопке подтверждения они пугают:
+    // пишем, что действие делает, а слова Steam оставляем в подсказке
+    const ok=el('button','primary','Подтвердить');
+    ok.title=c.accept?('Steam называет это «'+c.accept+'»'):'';
     ok.style.padding='4px 10px'; ok.style.fontSize='12px';
     ok.onclick=()=>respondConf(login,[c.id],true,box);
-    const no=el('button','ghost danger',c.cancel||'Отклонить');
+    const no=el('button','ghost danger','Отклонить');
+    no.title=c.cancel?('Steam называет это «'+c.cancel+'»'):'';
     no.style.padding='4px 10px'; no.style.fontSize='12px';
     no.onclick=()=>respondConf(login,[c.id],false,box);
     acts.appendChild(ok); acts.appendChild(no); row.appendChild(acts);
@@ -432,9 +436,10 @@ function renderConfs(login, box, items){
 async function respondConf(login, ids, accept, box){
   box.querySelectorAll('button').forEach(x=>x.disabled=true);
   try{
-    await api('/api/m/confirmations/'+encodeURIComponent(login),
+    const r=await api('/api/m/confirmations/'+encodeURIComponent(login),
       {method:'POST',body:JSON.stringify({ids:ids,accept:accept})});
-    toast(accept?('Подтверждено: '+ids.length):('Отклонено: '+ids.length));
+    const done=accept?('Подтверждено: '+ids.length):('Отклонено: '+ids.length);
+    toast(r&&r.note?(done+' ('+r.note+')'):done);
   }catch(e){ toast(e.message,true); }
   await loadConfs(login, box);
 }
