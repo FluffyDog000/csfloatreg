@@ -185,11 +185,14 @@ async def run_conf_probe(args) -> int:
     сессию удалось поднять и дословный ответ Steam. Ничего не подтверждает,
     пока не передашь --accept.
     """
+    import base64
+    import dataclasses
+
     from bot.confirmations import fetch as fetch_confirmations
     from bot.confirmations import respond as respond_confirmations
     from bot.manager import ProfileManager
     from bot.steam_guard import SteamTime
-    from bot.steam_web import token_alive, token_expiry
+    from bot.steam_web import token_alive, token_expiry, token_payload
 
     def shown(value: str, keep: int = 6) -> str:
         return f"{value[:keep]}…{value[-4:]} ({len(value)} симв.)" if value else "НЕТ"
@@ -245,8 +248,13 @@ async def run_conf_probe(args) -> int:
         await manager.steam_web.close()
         return 1
     tokens = manager.steam_web.saved_tokens(login)
-    left = token_expiry(tokens.get("access_token", "")) - int(time.time())
-    print(f"   access_token    : {shown(tokens.get('access_token', ''))}, осталось {max(0, left) // 60} мин")
+    access = tokens.get("access_token", "")
+    left = token_expiry(access) - int(time.time())
+    payload = token_payload(access)
+    print(f"   access_token    : {shown(access)}, осталось {max(0, left) // 60} мин")
+    print(f"   выдан аккаунту  : {payload.get('sub') or '?'}"
+          + ("" if str(payload.get("sub") or "") == str(mafile.steam_id)
+             else "  <-- ЭТО НЕ ТОТ STEAMID, ЧТО В maFile!"))
     print(f"   прокси          : {manager.proxy_for(login).safe() if manager.proxy_for(login) else 'без прокси'}")
 
     print("\n5) Список подтверждений")
@@ -262,6 +270,22 @@ async def run_conf_probe(args) -> int:
         print("   пусто — подтверждать нечего")
         await manager.steam_web.close()
         return 0
+
+    # Проверяем, вправду ли Steam сверяет подпись на списке. Если список
+    # приходит и с заведомо чужим ключом, значит его успех ничего не говорит
+    # об identity_secret — а операцию Steam подписью проверяет всерьёз.
+    print("\n5б) Проверка identity_secret: запрашиваю список заведомо неверным ключом")
+    bogus = dataclasses.replace(mafile, identity_secret=base64.b64encode(b"x" * 20).decode())
+    try:
+        wrong = await fetch_confirmations(context, bogus, steam_time)
+        if wrong:
+            print(f"   список пришёл и с чужим ключом ({len(wrong)} шт.) — значит на списке Steam")
+            print("   подпись не сверяет, и рабочий список НЕ доказывает, что identity_secret верный.")
+            print("   А операцию он проверяет всерьёз: именно сюда и смотреть, если дальше отказ.")
+        else:
+            print("   с чужим ключом список пуст — подпись проверяется, identity_secret верный")
+    except Exception as exc:  # noqa: BLE001
+        print(f"   с чужим ключом отказ ({str(exc)[:80]}) — подпись проверяется, identity_secret верный")
 
     if not args.accept:
         print("\n6) Подтверждение не отправлено: добавь --accept, если нужно действительно подтвердить")

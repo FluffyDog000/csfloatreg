@@ -32,15 +32,19 @@ EXPIRY_SLACK_S = 600
 
 def token_expiry(token: str) -> int:
     """Срок жизни JWT из Steam. 0 — разобрать не вышло."""
+    return int(token_payload(token).get("exp") or 0)
+
+
+def token_payload(token: str) -> dict:
+    """Содержимое JWT из Steam: кому выдан, кем, до какого времени."""
     parts = (token or "").split(".")
     if len(parts) < 2:
-        return 0
+        return {}
     chunk = parts[1] + "=" * (-len(parts[1]) % 4)
     try:
-        payload = json.loads(base64.urlsafe_b64decode(chunk))
-    except Exception:  # noqa: BLE001 — чужой формат не наша беда
-        return 0
-    return int(payload.get("exp") or 0)
+        return json.loads(base64.urlsafe_b64decode(chunk))
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def token_alive(token: str, *, slack: int = EXPIRY_SLACK_S) -> bool:
