@@ -31,8 +31,12 @@ class AutoConfirm:
         self._task: asyncio.Task | None = None
         self._last_sweep = 0.0
         self.accepted: dict[str, dict] = {}     # что и когда подтвердили
-        # подтверждения-сироты: обмена уже нет, и долбиться в них бессмысленно
-        self.hopeless: set[str] = set()
+
+
+    @property
+    def hopeless(self) -> dict:
+        """Мёртвые подтверждения помнит менеджер — он же их и распознаёт."""
+        return self.manager.hopeless
 
     # ── настройки ────────────────────────────────────────────
     @property
@@ -141,9 +145,7 @@ class AutoConfirm:
             try:
                 await self.manager.respond_confirmation(login, ids, accept=True)
             except OfferGone:
-                # обмена нет — больше не трогаем это подтверждение, оно уйдёт само
-                self.hopeless.update(ids)
-                raise
+                raise        # менеджер уже запомнил: больше это подтверждение не трогаем
             self.accepted[login] = {
                 "count": len(ids), "at": time.strftime("%H:%M:%S"),
                 "what": "; ".join(i.get("headline") or "" for i in items).strip("; ")[:120],

@@ -59,6 +59,8 @@ class ProfileManager:
         self.steam_web.steam_time = steam_time
         self._locks: dict[str, asyncio.Lock] = {}
         self._confs: dict[str, dict[str, Confirmation]] = {}   # последний список подтверждений
+        # подтверждения, у которых обмена уже нет: второй раз туда не ходим
+        self.hopeless: dict[str, str] = {}
         self.reload_inputs()
 
     # ── входные данные ───────────────────────────────────────
@@ -346,7 +348,7 @@ class ProfileManager:
         items = await fetch_confirmations(request, mafile, self.steam_time, timeout_ms=timeout)
         self._confs[login] = {item.id: item for item in items}
         self.log.info("[%s] подтверждений: %d", login, len(items))
-        return [item.as_dict() for item in items]
+        return [{**item.as_dict(), "dead": self.hopeless.get(item.id, "")} for item in items]
 
     async def respond_confirmation(self, login: str, ids: list[str], *, accept: bool) -> dict:
         request, mafile = await self._mobile(login)
@@ -357,6 +359,11 @@ class ProfileManager:
         items = [known[cid] for cid in ids if cid in known]
         if not items:
             raise ConfirmationError("этих подтверждений больше нет — обнови список")
+
+        # по мёртвому обмену Steam откажет снова: не тратим на него четыре запроса
+        dead = [self.hopeless[cid] for cid in ids if cid in self.hopeless]
+        if dead and len(dead) == len(ids):
+            raise OfferGone(f"{dead[0]} — Steam уберёт эту строку из списка сам")
 
         timeout = int(self.cfg.get("timeouts.action_ms", 20000))
         try:
@@ -371,6 +378,8 @@ class ProfileManager:
             if len(gone) != len(items):
                 dead = await self._dead_offers(request, items, timeout)
                 if dead:
+                    for item in items:
+                        self.hopeless[item.id] = dead
                     self.log.warning("[%s] подтверждать нечего: %s", login, dead)
                     raise OfferGone(dead) from None
                 self.log.error("[%s] подтверждение не прошло: %s", login, exc)

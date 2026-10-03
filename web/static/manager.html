@@ -425,6 +425,14 @@ function renderConfs(login, box, items){
     head.appendChild(ttl);
     row.appendChild(head);
     (c.summary||[]).forEach(line=>row.appendChild(el('div','muted',line)));
+    if(c.dead){
+      // обмена уже нет: кнопки тут только раздражают, Steam всё равно откажет
+      row.style.opacity='.6';
+      const note=el('div',null,'обмена больше нет — подтверждать нечего, строка исчезнет сама');
+      note.style.cssText='font-size:11px;margin-top:6px;color:#ff9c9c';
+      note.title=c.dead;
+      row.appendChild(note); box.appendChild(row); return;
+    }
     const acts=el('div','row'); acts.style.marginTop='7px';
     // подписи у Steam свои («Send Offer»), и на кнопке подтверждения они пугают:
     // пишем, что действие делает, а слова Steam оставляем в подсказке
