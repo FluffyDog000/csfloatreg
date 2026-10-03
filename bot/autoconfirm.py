@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from .confirmations import ConfirmationError
+from .confirmations import ConfirmationError, OfferGone
 from .events import hub as default_hub
 from .logging_setup import get_logger
 
@@ -31,6 +31,8 @@ class AutoConfirm:
         self._task: asyncio.Task | None = None
         self._last_sweep = 0.0
         self.accepted: dict[str, dict] = {}     # что и когда подтвердили
+        # подтверждения-сироты: обмена уже нет, и долбиться в них бессмысленно
+        self.hopeless: set[str] = set()
 
     # ── настройки ────────────────────────────────────────────
     @property
@@ -111,6 +113,8 @@ class AutoConfirm:
                 try:
                     done["accepted"] += await self._one(login)
                     done["checked"] += 1
+                except OfferGone as exc:
+                    self.log.info("[%s] автоподтверждение пропускает: %s", login, exc)
                 except ConfirmationError as exc:
                     done["failed"] += 1
                     self.log.warning("[%s] автоподтверждение: %s", login, exc)
@@ -131,10 +135,15 @@ class AutoConfirm:
             await self.manager.open_profile(login, headful=bool(self.cfg.get("confirm.headful", False)))
         try:
             items = await self.manager.confirmations(login)
-            if not items:
+            ids = [item["id"] for item in items if item["id"] not in self.hopeless]
+            if not ids:
                 return 0
-            ids = [item["id"] for item in items]
-            await self.manager.respond_confirmation(login, ids, accept=True)
+            try:
+                await self.manager.respond_confirmation(login, ids, accept=True)
+            except OfferGone:
+                # обмена нет — больше не трогаем это подтверждение, оно уйдёт само
+                self.hopeless.update(ids)
+                raise
             self.accepted[login] = {
                 "count": len(ids), "at": time.strftime("%H:%M:%S"),
                 "what": "; ".join(i.get("headline") or "" for i in items).strip("; ")[:120],

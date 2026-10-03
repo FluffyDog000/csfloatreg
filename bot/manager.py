@@ -14,7 +14,7 @@ from .bindings import BindingStore
 from .browser import BrowserSession
 from .captcha import build_solver
 from .context import AccountContext
-from .confirmations import Confirmation, ConfirmationError
+from .confirmations import Confirmation, ConfirmationError, OfferGone
 from .confirmations import fetch as fetch_confirmations
 from .confirmations import prepare as prepare_mobile
 from .confirmations import respond as respond_confirmations
@@ -24,6 +24,7 @@ from .mailbox import attach_mailboxes, mail_source, mail_stats, replace_mailbox
 from .models import Account, Bundle, MaFile, Mailbox, Proxy
 from .steam_guard import seconds_until_next_code
 from .steam_web import SteamWeb
+from .trading import offer_gone
 from .storage import StateStore
 
 
@@ -368,6 +369,10 @@ class ProfileManager:
             left = {c.id for c in await fetch_confirmations(request, mafile, self.steam_time, timeout_ms=timeout)}
             gone = [item.id for item in items if item.id not in left]
             if len(gone) != len(items):
+                dead = await self._dead_offers(request, items, timeout)
+                if dead:
+                    self.log.warning("[%s] подтверждать нечего: %s", login, dead)
+                    raise OfferGone(dead) from None
                 self.log.error("[%s] подтверждение не прошло: %s", login, exc)
                 raise
             self.log.warning("[%s] Steam ответил отказом (%s), но подтверждений в списке больше нет —"
@@ -377,6 +382,21 @@ class ProfileManager:
             known.pop(item.id, None)
         self.log.info("[%s] %s подтверждений: %d", login, "принято" if accept else "отклонено", len(items))
         return result
+
+    async def _dead_offers(self, request, items, timeout: int) -> str:
+        """Описание обменов, которых уже нет. Пусто — все на месте.
+
+        Подтверждение-сирота остаётся в списке и выглядит как обычное, но
+        Steam отказывает в нём молча: обмен отменён, истёк или уже принят.
+        """
+        reasons = []
+        for item in items:
+            if not item.creator_id:
+                continue
+            why = await offer_gone(request, item.creator_id, timeout_ms=timeout)
+            if why:
+                reasons.append(f"обмена {item.creator_id} больше нет ({why})")
+        return "; ".join(reasons)
 
     # ── профили ──────────────────────────────────────────────
     def _lock(self, login: str) -> asyncio.Lock:

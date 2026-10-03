@@ -418,6 +418,38 @@ async def trade_page_problem(request, partner: TradePartner, *, timeout_ms: int 
     return ""
 
 
+#: Так Steam говорит, что обмена больше нет: отменён, принят или истёк.
+_OFFER_GONE = (
+    "trade offer is no longer valid",
+    "no longer valid",
+    "has been canceled",
+    "has been cancelled",
+    "is no longer available",
+    "trade offer has been declined",
+)
+
+
+async def offer_gone(request, offer_id: str, *, timeout_ms: int = 20000) -> str:
+    """Почему обмена больше нет. Пустая строка — обмен на месте.
+
+    Нужно, когда Steam отказывает в подтверждении без объяснения: чаще всего
+    это подтверждение-сирота от обмена, которого уже не существует.
+    """
+    try:
+        response = await request.get(
+            f"{BASE}/tradeoffer/{offer_id}/", headers=PAGE_HEADERS, timeout=timeout_ms
+        )
+        text = visible_text(await response.text())
+    except Exception:  # noqa: BLE001 — подсказка не обязана работать
+        return ""
+    low = text.lower()
+    for marker in _OFFER_GONE:
+        index = low.find(marker)
+        if index >= 0:
+            return text[max(0, index - 60) : index + 90].strip()
+    return ""
+
+
 _OFFER_IN_TEXT = re.compile(r"tradeofferid[_\"':= ]+(\d{6,})")
 
 

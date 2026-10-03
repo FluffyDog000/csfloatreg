@@ -60,6 +60,10 @@ class ConfirmationError(RuntimeError):
     """Steam не отдал список или отказал в операции — причина в тексте."""
 
 
+class OfferGone(ConfirmationError):
+    """Обмена, к которому относится подтверждение, больше нет."""
+
+
 @dataclasses.dataclass(slots=True)
 class Confirmation:
     id: str
