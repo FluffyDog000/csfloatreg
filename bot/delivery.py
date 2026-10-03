@@ -16,6 +16,7 @@ import time
 
 from .confirmations import ConfirmationError
 from .confirmations import fetch as fetch_confirmations
+from .confirmations import prepare as prepare_mobile
 from .confirmations import respond as respond_confirmations
 from .events import hub as default_hub
 from .logging_setup import get_logger
@@ -264,7 +265,9 @@ class Delivery:
 
     async def _confirm(self, sender: str, mafile, offer_id: str, *, attempts: int = 6) -> None:
         """Подтверждение появляется не мгновенно — ждём именно своё."""
-        request = (await self.manager.sessions[sender].context("main")).request
+        context = await self.manager.sessions[sender].context("main")
+        await prepare_mobile(context)        # те же cookies мобильного клиента
+        request = context.request
         for attempt in range(1, attempts + 1):
             pending = await fetch_confirmations(request, mafile, self.manager.steam_time)
             mine = [c for c in pending if c.creator_id == str(offer_id)]

@@ -16,6 +16,7 @@ from .models import MaFile
 from .steam_guard import device_id as make_device_id
 
 BASE = "https://steamcommunity.com/mobileconf"
+COMMUNITY = "https://steamcommunity.com"
 
 #: Заголовки мобильного клиента Steam: без них часть ответов приходит как HTML.
 HEADERS = {
@@ -31,6 +32,28 @@ CLIENTS = ("react", "android")
 #: голым {"success": false} без единого слова объяснения. Старые теги остаются
 #: вторым заходом: вдруг где-то ещё принимаются.
 OP_TAGS = {True: ("allow", "accept"), False: ("cancel", "reject")}
+
+#: Признаки мобильного клиента. Список Steam отдаёт и так, а вот операцию над
+#: подтверждением от «не мобильной» сессии умеет отклонять молча — ровно тем
+#: самым {"success": false} без единого слова. SDA и steampy ставят эти cookies
+#: при входе; у нас сессия браузерная, поэтому выставляем их сами.
+MOBILE_COOKIES = (
+    ("mobileClientVersion", "777777 3.6.4"),
+    ("mobileClient", "android"),
+    ("Steam_Language", "english"),
+)
+
+
+async def prepare(context) -> None:
+    """Добавляет в профиль cookies мобильного клиента. Без них Steam капризничает."""
+    cookies = [
+        {"name": name, "value": value, "domain": ".steamcommunity.com", "path": "/"}
+        for name, value in MOBILE_COOKIES
+    ]
+    try:
+        await context.add_cookies(cookies)
+    except Exception as exc:  # noqa: BLE001 — не повод отказываться от попытки
+        get_logger().debug("Не удалось поставить cookies мобильного клиента: %s", exc)
 
 
 class ConfirmationError(RuntimeError):
@@ -147,6 +170,20 @@ async def fetch(request, mafile: MaFile, steam_time, *, timeout_ms: int = 20000)
     raise ConfirmationError(last_error or "Steam не ответил")
 
 
+def plans(accept: bool, count: int) -> list[tuple[str, str, str]]:
+    """Способы отправить операцию: (адрес, клиент, тег), от обычного к запасным.
+
+    Steam на отказ не объясняется, поэтому вместо гадания пробуем все рабочие
+    сочетания, какие знают SDA, steampy и node-steamcommunity.
+    """
+    op_tag, legacy = OP_TAGS[bool(accept)]
+    if count > 1:
+        return [("multiajaxop", "react", op_tag), ("multiajaxop", "android", op_tag),
+                ("multiajaxop", "react", legacy)]
+    return [("ajaxop", "react", op_tag), ("ajaxop", "android", op_tag),
+            ("multiajaxop", "react", op_tag), ("ajaxop", "react", legacy)]
+
+
 async def respond(
     request,
     mafile: MaFile,
@@ -156,41 +193,43 @@ async def respond(
     accept: bool,
     timeout_ms: int = 20000,
 ) -> dict:
-    """Подтвердить или отклонить. Одно — через ajaxop, пачку — через multiajaxop."""
+    """Подтвердить или отклонить. Перебирает способы, пока Steam не согласится."""
     if not items:
         raise ConfirmationError("нечего подтверждать")
     op = "allow" if accept else "cancel"
     log = get_logger()
 
     last_error = ""
-    for tag in OP_TAGS[bool(accept)]:
-        for client in CLIENTS:
-            params = _params(mafile, steam_time, tag, client)
-            if len(items) == 1:
-                single = dict(params, op=op, cid=items[0].id, ck=items[0].nonce)
-                response = await request.get(
-                    f"{BASE}/ajaxop", params=single, headers=HEADERS, timeout=timeout_ms
-                )
-            else:
-                fields = [(k, str(v)) for k, v in params.items()] + [("op", op)]
-                for item in items:
-                    fields.append(("cid[]", item.id))
-                    fields.append(("ck[]", item.nonce))
-                response = await request.post(
-                    f"{BASE}/multiajaxop",
-                    data=urlencode(fields),
-                    headers={**HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
-                    timeout=timeout_ms,
-                )
-            body = await response.text()
-            payload = _payload(body)
-            if payload is None:
-                last_error = _explain(response.status, body)
-                log.debug("Подтверждение (%s/%s): %s", tag, client, last_error)
-                continue
-            if payload.get("success"):
-                log.debug("Подтверждение прошло: op=%s tag=%s m=%s", op, tag, client)
-                return {"done": len(items), "accept": accept}
-            last_error = _failure(payload)
-            log.debug("Подтверждение (%s/%s) отклонено: %s", tag, client, last_error)
-    raise ConfirmationError(last_error or "Steam не ответил")
+    tried = []
+    for endpoint, client, tag in plans(accept, len(items)):
+        params = _params(mafile, steam_time, tag, client)
+        if endpoint == "ajaxop":
+            single = dict(params, op=op, cid=items[0].id, ck=items[0].nonce)
+            response = await request.get(
+                f"{BASE}/ajaxop", params=single, headers=HEADERS, timeout=timeout_ms
+            )
+        else:
+            fields = [(k, str(v)) for k, v in params.items()] + [("op", op)]
+            for item in items:
+                fields.append(("cid[]", item.id))
+                fields.append(("ck[]", item.nonce))
+            response = await request.post(
+                f"{BASE}/multiajaxop",
+                data=urlencode(fields),
+                headers={**HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
+                timeout=timeout_ms,
+            )
+
+        body = await response.text()
+        tried.append(f"{endpoint}/{client}/{tag}")
+        payload = _payload(body)
+        if payload is not None and payload.get("success"):
+            log.info("Подтверждение прошло: %s/%s, тег %s", endpoint, client, tag)
+            return {"done": len(items), "accept": accept}
+
+        last_error = _explain(response.status, body) if payload is None else _failure(payload)
+        # сырой ответ в лог: без него отказ Steam невозможно отличить от нашей ошибки
+        log.warning("Подтверждение не принято (%s/%s, тег %s): HTTP %s %s",
+                    endpoint, client, tag, response.status, " ".join(body.split())[:160])
+
+    raise ConfirmationError(f"{last_error or 'Steam не ответил'} [перебрано: {', '.join(tried)}]")

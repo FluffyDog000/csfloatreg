@@ -16,6 +16,7 @@ from .captcha import build_solver
 from .context import AccountContext
 from .confirmations import Confirmation, ConfirmationError
 from .confirmations import fetch as fetch_confirmations
+from .confirmations import prepare as prepare_mobile
 from .confirmations import respond as respond_confirmations
 from .loader import load_accounts, load_mafiles, load_mails, load_proxies
 from .logging_setup import get_logger
@@ -197,6 +198,7 @@ class ProfileManager:
                     "status": entry.get("status", "new"),
                     "note": entry.get("note", ""),
                     "trade_url": entry.get("trade_url", ""),
+                    "auto_confirm": bool(entry.get("auto_confirm")),
                     "opened": login in self.sessions,
                     "profile_exists": (self.cfg.path_for("profiles") / login).exists(),
                 }
@@ -226,6 +228,7 @@ class ProfileManager:
             "has_mafile": bool(mafile and mafile.shared_secret),
             "can_confirm": bool(mafile and mafile.identity_secret and mafile.steam_id),
             "opened": login in self.sessions,
+            "auto_confirm": bool(entry.get("auto_confirm")),
             "guard": self.guard(login),
             "delivery": entry.get("delivery") or {},
         }
@@ -254,6 +257,7 @@ class ProfileManager:
         if mafile is None:
             raise ConfirmationError("нет maFile для этого аккаунта")
         context = await session.context("main")
+        await prepare_mobile(context)        # Steam ждёт от этих запросов мобильный клиент
         return context.request, mafile
 
     async def request_for(self, login: str, *, headful: bool | None = None):

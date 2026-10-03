@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from bot import logging_setup
 from bot.config import load_selectors
 from bot.confirmations import ConfirmationError
+from bot.autoconfirm import AutoConfirm
 from bot.delivery import MAX_WORKERS, Delivery
 from bot.errors import LoaderError
 from bot.events import HubLogHandler, hub
@@ -135,13 +136,17 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     # одно хранилище привязок на процесс: два экземпляра затирали бы записи друг друга
     state = AppState(cfg, selectors, selectors_path, bindings=manager.bindings)
     delivery = Delivery(manager)
+    # автоподтверждение не лезет под руку прогону и рассылке
+    auto = AutoConfirm(manager, busy=lambda: delivery.running or state.running)
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI):
         hub.bind_loop(asyncio.get_running_loop())
         _warn_stale_local()
         await steam_time.sync(logging_setup.get_logger())
+        auto.start()
         yield
+        await auto.stop()
         await manager.close_all()
 
     app = FastAPI(title="CSFloat bot", docs_url=None, redoc_url=None, lifespan=lifespan)
@@ -611,6 +616,22 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
 
         asyncio.create_task(_job())
         return {"started": True, "targets": len(targets)}
+
+    @app.post("/api/m/auto-confirm")
+    async def m_auto_confirm(payload: dict = Body(...)):
+        """Включить/выключить автоподтверждение на выбранных аккаунтах."""
+        logins = [str(x) for x in (payload.get("logins") or []) if str(x)]
+        if not logins:
+            raise HTTPException(400, "не выбран ни один аккаунт")
+        changed = auto.switch(logins, bool(payload.get("on")))
+        return {"changed": changed, "on": bool(payload.get("on")), "accounts": manager.rows()}
+
+    @app.post("/api/m/auto-confirm/sweep")
+    async def m_auto_confirm_sweep():
+        """Проверить отмеченные аккаунты прямо сейчас, не дожидаясь обхода."""
+        if auto.busy():
+            raise HTTPException(409, "идёт прогон или рассылка — обход подождёт")
+        return await auto.sweep(include_closed=True)
 
     @app.post("/api/m/delivery/stop")
     async def m_delivery_stop():
