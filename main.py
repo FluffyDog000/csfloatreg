@@ -193,6 +193,7 @@ async def run_limits(args) -> int:
     from bot.manager import ProfileManager
     from bot.steam_guard import SteamTime
 
+    logging_setup.hush_connection_reset()
     cfg, _selectors, _log_path = load_everything(args)
     steam_time = SteamTime(cfg.get("steam.time_sync_url"), enabled=bool(cfg.get("steam.time_sync", True)))
     await steam_time.sync(logging_setup.get_logger())
@@ -323,6 +324,7 @@ async def run_conf_probe(args) -> int:
     def shown(value: str, keep: int = 6) -> str:
         return f"{value[:keep]}…{value[-4:]} ({len(value)} симв.)" if value else "НЕТ"
 
+    logging_setup.hush_connection_reset()
     cfg, _selectors, _log_path = load_everything(args)
     login = args.conf_probe
     print(f"\n0) Код: {code_version(cfg.root)}")

@@ -17,6 +17,32 @@ _MASK = "***"
 LOGGER_NAME = "bot"
 
 
+def hush_connection_reset() -> None:
+    """Гасит трейсбек «[WinError 10054] удалённый хост разорвал подключение».
+
+    Его печатает сам asyncio, когда прокси закрывает соединение не попрощавшись.
+    На результат это не влияет, а в консоли выглядит как падение — и путает.
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    previous = loop.get_exception_handler()
+
+    def handler(current, context):
+        if isinstance(context.get("exception"), ConnectionResetError):
+            get_logger().debug("Соединение разорвано удалённой стороной: %s", context.get("message"))
+            return
+        if previous is not None:
+            previous(current, context)
+        else:
+            current.default_exception_handler(context)   # он принимает только контекст
+
+    loop.set_exception_handler(handler)
+
+
 def register_secret(*values: str | None) -> None:
     for value in values:
         if value and isinstance(value, str) and len(value) >= 3:

@@ -144,6 +144,7 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI):
         hub.bind_loop(asyncio.get_running_loop())
+        logging_setup.hush_connection_reset()      # [WinError 10054] от прокси — шум
         # первой строкой — какой код запущен: половина «не починилось» это старый код
         logging_setup.get_logger().info("Код: %s", code_version(cfg.root))
         _warn_stale_local()
