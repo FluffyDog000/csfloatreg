@@ -24,6 +24,7 @@ from bot import logging_setup
 from bot.config import load_selectors
 from bot.confirmations import ConfirmationError
 from bot.autoconfirm import AutoConfirm
+from bot.version import code_version
 from bot.delivery import MAX_WORKERS, Delivery
 from bot.errors import LoaderError
 from bot.events import HubLogHandler, hub
@@ -117,6 +118,7 @@ class AppState:
             "threads": self.cfg.get("run.threads"),
             "headful": self.cfg.get("run.headful"),
             "engine": self.cfg.get("browser.engine"),
+            "version": code_version(self.cfg.root),
             "counts": {
                 "accounts": len(self.bundles),
                 "ready": sum(1 for b in self.bundles if not b.error),
@@ -142,6 +144,8 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI):
         hub.bind_loop(asyncio.get_running_loop())
+        # первой строкой — какой код запущен: половина «не починилось» это старый код
+        logging_setup.get_logger().info("Код: %s", code_version(cfg.root))
         _warn_stale_local()
         await steam_time.sync(logging_setup.get_logger())
         auto.start()
@@ -466,6 +470,7 @@ def create_app(cfg, selectors=None, *, selectors_path: str = "selectors.yaml") -
             "mails": manager.mail_stats(),
             "load_error": manager.load_error,
             "engine": cfg.get("browser.engine"),
+            "version": code_version(cfg.root),
             "time_offset": round(steam_time.offset, 1),
         }
 

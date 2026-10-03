@@ -111,6 +111,7 @@
   <span class="chip" id="poolChip">пул: —</span>
   <span class="chip" id="mailChip">почты: —</span>
   <span class="chip" id="engineChip">—</span>
+  <span class="chip" id="verChip" title="какой код сейчас запущен">—</span>
   <div class="spacer"></div>
   <button class="file-btn ghost">accounts.txt<input type="file" data-kind="accounts" accept=".txt"></button>
   <button class="file-btn ghost">proxies.txt<input type="file" data-kind="proxies" accept=".txt"></button>
@@ -216,6 +217,8 @@ function render() {
   $('#mailChip').innerHTML=`почты: <b>${m.total||0}</b> · свободно <b>${m.free||0}</b> · занято <b>${m.used||0}</b> · плохих <b>${m.bad||0}</b>`;
   $('#mailChip').classList.toggle('hidden', !(m.total||0));
   $('#engineChip').textContent=(STATE.engine||'—')+(STATE.time_offset!==undefined?` · время Steam ${STATE.time_offset>=0?'+':''}${STATE.time_offset}s`:'');
+  // версия на виду: «не починилось» чаще всего означает старый код
+  $('#verChip').textContent=STATE.version||'—'; $('#verChip').title=STATE.version||'';
   const err=$('#loadError');
   if(STATE.load_error){err.textContent=STATE.load_error;err.classList.remove('hidden');}else err.classList.add('hidden');
 
