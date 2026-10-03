@@ -7,6 +7,7 @@ HMAC-ключом из identity_secret, а авторизация берётся
 """
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
 from urllib.parse import urlencode
@@ -69,6 +70,10 @@ async def prepare(context) -> None:
 
 class ConfirmationError(RuntimeError):
     """Steam не отдал список или отказал в операции — причина в тексте."""
+
+
+class RateLimited(ConfirmationError):
+    """Steam придерживает запросы с этого IP. Долбиться дальше — только хуже."""
 
 
 class OfferGone(ConfirmationError):
@@ -137,9 +142,19 @@ def _payload(body: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+#: Пауза между попытками: Steam считает частые обращения и начинает придерживать.
+RETRY_PAUSE_S = 2.5
+
+
+def _rate_limited(status: int, body: str) -> bool:
+    return status == 429 or "too many requests" in body.lower()
+
+
 def _explain(status: int, body: str) -> str:
     """HTML вместо JSON означает конкретные вещи — не заставляем гадать."""
     low = body.lower()
+    if _rate_limited(status, body):
+        return "Steam придерживает запросы с этого IP (429): подожди или смени прокси"
     if "steam guard mobile authenticator" in low and "add" in low:
         return "Steam не считает эту сессию мобильной: подтверждения доступны только мобильному входу"
     if "login" in low and ("sign in" in low or "steamcommunity.com/login" in low):
@@ -157,8 +172,9 @@ def _failure(payload: dict) -> str:
         return "Steam требует мобильный вход (needauth): cookies браузера ему не подходят"
     if set(payload) <= {"success"}:
         return (
-            "Steam отказал без объяснения. Обычно это устаревший список подтверждений "
-            "(нажми «Обновить» и повтори), разошедшиеся часы или чужой identity_secret"
+            "Steam отказал без объяснения. Так он отвечает, когда придерживает запросы "
+            "с этого IP (смени прокси и подожди), когда обмена уже нет или когда "
+            "список подтверждений устарел"
         )
     return json.dumps(payload, ensure_ascii=False)[:200]
 
@@ -266,10 +282,16 @@ async def respond(
         if payload is not None and payload.get("success"):
             log.info("Подтверждение прошло: %s/%s, тег %s", endpoint, client, tag)
             return {"done": len(items), "accept": accept}
+        if _rate_limited(response.status, body):
+            raise RateLimited(
+                "Steam придерживает запросы с этого IP (429). Подожди несколько минут "
+                "или смени прокси аккаунта: перебирать способы сейчас бессмысленно"
+            )
 
         last_error = _explain(response.status, body) if payload is None else _failure(payload)
         # сырой ответ в лог: без него отказ Steam невозможно отличить от нашей ошибки
         log.warning("Подтверждение не принято (%s/%s, тег %s): HTTP %s %s",
                     endpoint, client, tag, response.status, " ".join(body.split())[:160])
+        await asyncio.sleep(RETRY_PAUSE_S)      # частить нельзя: Steam считает обращения
 
     raise ConfirmationError(f"{last_error or 'Steam не ответил'} [перебрано: {', '.join(tried)}]")
