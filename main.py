@@ -16,6 +16,7 @@ import json
 import os
 import signal
 import sys
+import time
 import urllib.parse
 
 from bot import logging_setup
@@ -59,6 +60,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--mail-probe", nargs="?", const="", metavar="MAIL",
         help="разведка API firstmail: скачать спецификацию, перебрать адреса и показать, "
              "какой отвечает (ящик берётся из --only или первый в списке)",
+    )
+    parser.add_argument(
+        "--conf-probe", metavar="ЛОГИН",
+        help="разбор подтверждений Steam по шагам: что в maFile, какая сессия поднимается, "
+             "что отвечает Steam на список и на подтверждение (ничего не подтверждает)",
+    )
+    parser.add_argument(
+        "--accept", action="store_true",
+        help="в режиме --conf-probe: действительно подтвердить найденное, а не только показать",
     )
     parser.add_argument("--run", action="store_true", help="прогон очереди в консоли (без веб-интерфейса)")
     parser.add_argument("--log-level", default="INFO", help="уровень логов в консоли")
@@ -166,6 +176,110 @@ async def run_reset(args) -> int:
         print(f"  сброшен: {login}")
     print(f"\nГотово: {len(bundles)} аккаунт(ов). Отпечатки в state/*.fp.json сохранены.")
     return 0
+
+
+async def run_conf_probe(args) -> int:
+    """Подтверждения Steam по шагам: где именно рвётся цепочка.
+
+    Печатает всё, что нужно для разбора: версию кода, состав maFile, какую
+    сессию удалось поднять и дословный ответ Steam. Ничего не подтверждает,
+    пока не передашь --accept.
+    """
+    from bot.confirmations import fetch as fetch_confirmations
+    from bot.confirmations import respond as respond_confirmations
+    from bot.manager import ProfileManager
+    from bot.steam_guard import SteamTime
+    from bot.steam_web import token_alive, token_expiry
+
+    def shown(value: str, keep: int = 6) -> str:
+        return f"{value[:keep]}…{value[-4:]} ({len(value)} симв.)" if value else "НЕТ"
+
+    cfg, _selectors, _log_path = load_everything(args)
+    login = args.conf_probe
+    print(f"\n0) Код: {code_version(cfg.root)}")
+
+    steam_time = SteamTime(cfg.get("steam.time_sync_url"), enabled=bool(cfg.get("steam.time_sync", True)))
+    await steam_time.sync(logging_setup.get_logger())
+    print(f"\n1) Время Steam: смещение {steam_time.offset:+.1f} c")
+
+    manager = ProfileManager(cfg, steam_time)
+    if manager.load_error:
+        print(f"\nВходные файлы не прочитались: {manager.load_error}", file=sys.stderr)
+        return 2
+    if login not in manager.accounts:
+        known = ", ".join(list(manager.accounts)[:5]) or "ни одного"
+        print(f"\n{login} нет в accounts.txt. Есть: {known}", file=sys.stderr)
+        return 2
+    account = manager.accounts[login]
+    mafile = manager.mafiles.get(login.lower())
+
+    print("\n2) maFile")
+    if mafile is None:
+        print(f"   не найден по account_name={login} — проверь папку {cfg.path_for('mafiles')}")
+        return 2
+    print(f"   файл            : {mafile.path}")
+    print(f"   shared_secret   : {shown(mafile.shared_secret)}")
+    print(f"   identity_secret : {shown(mafile.identity_secret)}")
+    print(f"   steamid         : {mafile.steam_id or 'НЕТ'}")
+    print(f"   device_id       : {mafile.device_id or 'нет (посчитаем из steamid)'}")
+    print(f"   Session.Access  : {shown(mafile.access_token)}"
+          + (f", жив: {token_alive(mafile.access_token)}" if mafile.access_token else ""))
+    print(f"   Session.Refresh : {shown(mafile.refresh_token)}"
+          + (f", жив: {token_alive(mafile.refresh_token, slack=0)}" if mafile.refresh_token else ""))
+    print(f"   пароль аккаунта : {'есть' if account.password else 'НЕТ'}")
+
+    print("\n3) Какая сессия будет использована")
+    offline = manager.can_confirm_offline(login)
+    print(f"   без браузера    : {'да' if offline else 'нет — ' + manager.steam_web.why_not(mafile, account)}")
+
+    if not offline:
+        print("\n   Дальше пробовать нечего: подтверждения пойдут через открытый профиль.")
+        print("   Чтобы работало как в SDA, нужен пароль в accounts.txt либо maFile с Session.RefreshToken.")
+        return 1
+
+    print("\n4) Поднимаю сессию Steam (как мобильное приложение)")
+    try:
+        context = await manager.steam_web.context_for(login, mafile, manager.proxy_for(login), account)
+    except Exception as exc:  # noqa: BLE001 — это и есть предмет разбора
+        print(f"   НЕ ВЫШЛО: {exc}")
+        await manager.steam_web.close()
+        return 1
+    tokens = manager.steam_web.saved_tokens(login)
+    left = token_expiry(tokens.get("access_token", "")) - int(time.time())
+    print(f"   access_token    : {shown(tokens.get('access_token', ''))}, осталось {max(0, left) // 60} мин")
+    print(f"   прокси          : {manager.proxy_for(login).safe() if manager.proxy_for(login) else 'без прокси'}")
+
+    print("\n5) Список подтверждений")
+    try:
+        items = await fetch_confirmations(context, mafile, steam_time)
+    except Exception as exc:  # noqa: BLE001
+        print(f"   НЕ ВЫШЛО: {exc}")
+        await manager.steam_web.close()
+        return 1
+    for item in items:
+        print(f"   {item.id}: {item.headline} | {'; '.join(item.summary)} | обмен {item.creator_id}")
+    if not items:
+        print("   пусто — подтверждать нечего")
+        await manager.steam_web.close()
+        return 0
+
+    if not args.accept:
+        print("\n6) Подтверждение не отправлено: добавь --accept, если нужно действительно подтвердить")
+        await manager.steam_web.close()
+        return 0
+
+    print("\n6) Подтверждаю")
+    try:
+        result = await respond_confirmations(context, mafile, steam_time, items, accept=True)
+        print(f"   ГОТОВО: {result}")
+        code = 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"   ОТКАЗ: {exc}")
+        left_now = await fetch_confirmations(context, mafile, steam_time)
+        print(f"   осталось в списке: {len(left_now)} (было {len(items)})")
+        code = 1
+    await manager.steam_web.close()
+    return code
 
 
 def run_mail_probe(args) -> int:
@@ -635,6 +749,8 @@ def main() -> int:
             return asyncio.run(run_reset(args))
         if args.mail_probe is not None:
             return run_mail_probe(args)
+        if args.conf_probe:
+            return asyncio.run(run_conf_probe(args))
         if args.probe is not None:
             return asyncio.run(run_probe(args))
         if args.run or args.check:
