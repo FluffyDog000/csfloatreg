@@ -16,14 +16,23 @@ import json
 import secrets
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from .logging_setup import get_logger
 from .proxy_relay import maybe_relay
 from .steam_auth import AuthError, login as mobile_login, refresh_access
 
-#: Мобильное приложение Steam — им и представляемся.
-UA = "Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) " \
-     "Chrome/119.0.0.0 Mobile Safari/537.36 Valve Steam App"
+#: Мобильное приложение Steam ходит через okhttp — им и представляемся.
+#: Так же делает NebulaAuth, и это ближе к правде, чем браузерный UA.
+UA = "okhttp/3.12.12"
+
+#: Заголовки мобильного клиента: Accept, язык и Origin — как у приложения.
+MOBILE_HEADERS = {
+    "User-Agent": UA,
+    "Accept": "application/json, text/javascript, text/html, application/xml, text/xml, */*",
+    "Accept-Language": "en-US",
+    "Origin": "https://steamcommunity.com",
+}
 
 COOKIE_DOMAINS = (".steamcommunity.com", ".steampowered.com")
 
@@ -112,7 +121,7 @@ class SteamWeb:
     async def _bare_context(self, login: str, proxy):
         """Контекст без cookies — на нём добываем токены."""
         engine = await self._engine()
-        options = {"extra_http_headers": {"User-Agent": UA}, "ignore_https_errors": False}
+        options = {"extra_http_headers": dict(MOBILE_HEADERS), "ignore_https_errors": False}
         if proxy is not None:
             proxy_cfg, relay = await maybe_relay(proxy, self.cfg, self.log)
             options["proxy"] = proxy_cfg
@@ -163,6 +172,22 @@ class SteamWeb:
         self.save_tokens(login, tokens)
         return tokens
 
+    def _eligibility(self) -> str:
+        """Cookie webTradeEligibility — пропуск к операциям с обменами.
+
+        Её ставит клиент Steam, и без неё операцию над подтверждением обмена
+        он умеет отклонять молча. В NebulaAuth это помечено как отдельная
+        правка, без которой подтверждения не проходят.
+        """
+        payload = {
+            "allowed": 1,
+            "allowed_at_time": 0,
+            "steamguard_required_days": 15,
+            "new_device_cooldown_days": 0,
+            "time_checked": int(time.time()),
+        }
+        return quote(json.dumps(payload, separators=(",", ":")), safe="")
+
     def _cookies(self, tokens: dict) -> list[dict]:
         """Те же cookies, что ставит мобильное приложение Steam."""
         value = f"{tokens['steam_id']}%7C%7C{tokens['access_token']}"
@@ -172,10 +197,11 @@ class SteamWeb:
         pairs = (
             ("steamLoginSecure", value),
             ("sessionid", session_id),
-            ("mobileClientVersion", "0 (2.1.3)"),
+            ("mobileClientVersion", "777777 3.6.1"),
             ("mobileClient", "android"),
             ("Steam_Language", "english"),
             ("dob", ""),
+            ("webTradeEligibility", self._eligibility()),
         )
         # Playwright требует полный набор полей, иначе отказывается принимать cookie
         return [
@@ -205,7 +231,7 @@ class SteamWeb:
 
         engine = await self._engine()
         options = {
-            "extra_http_headers": {"User-Agent": UA},
+            "extra_http_headers": dict(MOBILE_HEADERS),
             "storage_state": {"cookies": self._cookies(tokens), "origins": []},
         }
         if proxy is not None:
