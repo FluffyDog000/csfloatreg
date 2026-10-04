@@ -1,0 +1,5 @@
+# Почты firstmail: адрес и пароль от ящика, по строке на ящик.
+# Скопируй в mails.txt (он в .gitignore). Порядок строк не важен:
+# кому какой ящик достался, помнит data/bindings.json.
+ivan.petrov1990@firstmail.ltd:8sKd21Lm
+maria.orlova88@firstmail.ltd:Qw3rTy90

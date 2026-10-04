@@ -1,0 +1,31 @@
+# Приватные входные данные — НИКОГДА не коммитить
+accounts.txt
+proxies.txt
+mails.txt
+mafiles/
+*.maFile
+
+# Старый config.local.yaml больше не читается (настройки живут в config.yaml),
+# но если он остался с прошлых версий — в репозиторий ему всё равно нельзя
+config.local.yaml
+
+# Бэкапы, которые делает веб-интерфейс при сохранении конфига
+*.bak*
+
+# Рантайм
+state/
+profiles/
+data/            # привязки аккаунт-прокси: внутри строки прокси с паролями
+errors/
+logs/
+debug/
+results.csv
+firstmail-openapi.json
+uploads/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env

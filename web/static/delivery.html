@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Рассылка предметов</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%234f8cff'/%3E%3Cpath d='M3 5h10v7H3z' fill='%230f1115'/%3E%3Cpath d='M3 5l5 4 5-4' stroke='%234f8cff' fill='none' stroke-width='1.2'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161a21; --panel-2:#1c2129; --line:#252b35;
+    --text:#e6e9ef; --muted:#8b94a6; --accent:#4f8cff; --accent-2:#2f6fe4;
+    --ok:#3ecf8e; --warn:#f0b429; --err:#ff5c5c; --purple:#a78bfa;
+    --radius:10px; font-size:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  button,input,select,textarea{font:inherit;color:inherit}
+  button{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
+         padding:7px 13px;cursor:pointer;transition:.15s}
+  button:hover:not(:disabled){border-color:var(--accent);background:#222937}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent-2);border-color:var(--accent-2);color:#fff;font-weight:600}
+  button.primary:hover:not(:disabled){background:var(--accent)}
+  button.danger{border-color:#5a2a2a;color:#ff9c9c}
+  button.ghost{background:transparent}
+  input[type=text],input[type=number],select{background:#0d1016;border:1px solid var(--line);
+       border-radius:8px;padding:7px 10px}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+
+  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 18px;
+         background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  .logo{font-weight:700;letter-spacing:.3px}
+  .logo span{color:var(--accent)}
+  .spacer{flex:1}
+  .chip{background:var(--panel-2);border:1px solid var(--line);border-radius:999px;
+        padding:3px 11px;font-size:12px;color:var(--muted);white-space:nowrap}
+  .chip b{color:var(--text)}
+  .nav-tabs{display:flex;gap:2px;background:var(--panel-2);border:1px solid var(--line);
+        border-radius:8px;padding:2px}
+  .nav-tabs a{padding:4px 12px;border-radius:6px;text-decoration:none;color:var(--muted);font-size:13px}
+  .nav-tabs a:hover{color:var(--text)}
+  .nav-tabs a.on{background:var(--accent-2);color:#fff;font-weight:600}
+
+  main{padding:16px;display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:16px;align-items:start}
+  @media(max-width:1080px){main{grid-template-columns:1fr}}
+  main>div{min-width:0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;
+        margin-bottom:16px}
+  .card h2{margin:0;padding:11px 14px;font-size:12px;letter-spacing:.5px;text-transform:uppercase;
+           color:var(--muted);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .body{padding:14px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field label{color:var(--muted);font-size:12px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{position:sticky;top:0;background:var(--panel-2);text-align:left;color:var(--muted);
+     font-weight:500;padding:8px 10px;border-bottom:1px solid var(--line);z-index:1}
+  td{padding:7px 10px;border-bottom:1px solid #1d222b;vertical-align:middle}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+  .muted{color:var(--muted)}
+  .truncate{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;
+            vertical-align:bottom}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;
+         border:1px solid transparent}
+  .b-new{background:#1d2530;color:var(--muted);border-color:var(--line)}
+  .b-sent{background:rgba(106,169,255,.14);color:#6aa9ff;border-color:rgba(106,169,255,.35)}
+  .b-ok{background:rgba(62,207,142,.14);color:var(--ok);border-color:rgba(62,207,142,.35)}
+  .b-wait{background:rgba(240,180,41,.14);color:var(--warn);border-color:rgba(240,180,41,.35)}
+  .b-err{background:rgba(255,92,92,.13);color:var(--err);border-color:rgba(255,92,92,.33)}
+
+  #log{height:300px;overflow:auto;background:#0b0e13;padding:9px 12px;
+       font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.5}
+  #log div{white-space:pre-wrap;word-break:break-word}
+  .l-ERROR{color:#ff8c8c}.l-WARNING{color:#f5c563}.l-INFO{color:#c9d3e3}
+
+  #stock{max-height:190px;overflow:auto}
+  #stock div{display:flex;justify-content:space-between;gap:10px;padding:3px 0;
+             border-bottom:1px solid #1d222b;cursor:pointer;font-size:12.5px}
+  #stock div:hover{color:var(--accent)}
+
+  .toast{position:fixed;right:18px;bottom:18px;background:var(--panel-2);border:1px solid var(--line);
+         border-left:3px solid var(--accent);border-radius:8px;padding:10px 14px;z-index:60;
+         transform:translateY(80px);opacity:0;transition:.25s}
+  .toast.show{transform:none;opacity:1}
+  .toast.err{border-left-color:var(--err)}
+  .hidden{display:none !important}
+  .warn-box{margin:0 0 12px;padding:10px 12px;border-radius:8px;font-size:12.5px;
+            background:rgba(240,180,41,.1);border:1px solid rgba(240,180,41,.3);color:#f5c563}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CSFloat <span>bot</span></div>
+  <nav class="nav-tabs">
+    <a href="/">Запуск</a><a href="/profiles">Профили</a><a href="/delivery" class="on">Рассылка</a>
+  </nav>
+  <span class="chip" id="stateChip">не запущена</span>
+  <div class="spacer"></div>
+  <button id="btnStart" class="primary">▶ Разослать</button>
+  <button id="btnStop" class="danger" disabled>■ Стоп</button>
+  <button id="btnReload" class="ghost" title="Обновить">⟳</button>
+</header>
+
+<main>
+  <div>
+    <div class="card">
+      <h2>Получатели<div class="spacer"></div>
+        <span id="pickCount" class="muted" style="text-transform:none;font-size:12px">выбрано: 0</span>
+      </h2>
+      <div class="body">
+        <div class="row">
+          <button id="selAll" class="ghost">выбрать всех с трейд-ссылкой</button>
+          <button id="selNone" class="ghost">снять</button>
+          <button id="selFailed" class="ghost">только неудачные</button>
+        </div>
+      </div>
+      <div style="max-height:52vh;overflow:auto">
+        <table>
+          <thead><tr>
+            <th style="width:28px"></th><th>Логин</th><th>Трейд-ссылка</th>
+            <th>Обмен</th><th>Статус</th><th>Разблокируется</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Лог<div class="spacer"></div>
+        <button class="ghost" id="btnClearLog" style="padding:2px 8px;font-size:11px">очистить</button>
+      </h2>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Что и откуда</h2>
+      <div class="body">
+        <p class="warn-box">
+          Отправитель отдаёт предметы и подтверждает обмен мобильно — ему нужен maFile
+          с identity_secret. Получателю подтверждать нечего: он ничего не отдаёт,
+          бот просто жмёт «Принять» из его профиля.
+        </p>
+
+        <div class="field">
+          <label>Отправитель</label>
+          <select id="sender"></select>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <button id="btnInventory" class="ghost">Показать инвентарь</button>
+          <span id="invInfo" class="muted" style="font-size:12px"></span>
+        </div>
+        <div id="stock" style="margin-top:8px"></div>
+
+        <div class="field" style="margin-top:12px">
+          <label>Предмет (точное market_hash_name)</label>
+          <input id="item" type="text" placeholder="Chroma 3 Case">
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <div class="field" style="width:130px">
+            <label>Штук на аккаунт</label>
+            <input id="perAccount" type="number" min="1" max="50" value="1">
+          </div>
+          <div class="field" style="width:110px">
+            <label title="Сколько получателей обслуживать разом. Обмены всё равно уходят по одному — параллельно идёт приём">Потоков</label>
+            <input id="workers" type="number" min="1" max="8" value="1">
+          </div>
+          <div class="field" style="flex:1;min-width:150px">
+            <label>Сообщение к обмену</label>
+            <input id="message" type="text" placeholder="необязательно">
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:12px">
+          <label class="muted" style="font-size:12px">
+            <input id="resume" type="checkbox" checked> пропускать уже принятые</label>
+          <label class="muted" style="font-size:12px">
+            <input id="headful" type="checkbox"> показывать браузер</label>
+        </div>
+
+        <div id="need" class="muted" style="margin-top:10px;font-size:12px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Итог</h2>
+      <div class="body" id="summary"><span class="muted">рассылка ещё не запускалась</span></div>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get('token');
+const $ = s => document.querySelector(s);
+const el = (t,c,x)=>{const e=document.createElement(t); if(c)e.className=c; if(x!=null)e.textContent=x; return e;};
+
+async function api(path, opts={}) {
+  const headers = Object.assign({}, opts.headers||{});
+  if (TOKEN) headers['X-Token'] = TOKEN;
+  if (opts.body) headers['Content-Type']='application/json';
+  const res = await fetch(path, Object.assign({}, opts, {headers}));
+  if (!res.ok) { let d=res.statusText; try{d=(await res.json()).detail||d;}catch(e){} throw new Error(d); }
+  return res.status===204 ? null : res.json();
+}
+function toast(msg, isErr) {
+  const t=$('#toast'); t.textContent=msg; t.classList.toggle('err',!!isErr); t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),4000);
+}
+
+const BADGE={sent:'b-sent',confirmed:'b-sent',accepted:'b-ok',escrow:'b-wait',error:'b-err'};
+const LABEL={sent:'отправлен',confirmed:'подтверждён',accepted:'принят',escrow:'в заморозке',error:'ошибка'};
+const PICKED = new Set();
+let STATE = {accounts:[], running:false};
+
+function render() {
+  $('#stateChip').textContent = STATE.running ? 'идёт рассылка' : 'не запущена';
+  $('#btnStart').disabled = !!STATE.running;
+  $('#btnStop').disabled = !STATE.running;
+
+  const sender = $('#sender');
+  const chosen = sender.value;
+  sender.innerHTML = '';
+  STATE.accounts.filter(a => a.can_send).forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a.login; opt.textContent = a.login + (a.opened ? ' · профиль открыт' : '');
+    sender.appendChild(opt);
+  });
+  if (!sender.options.length) {
+    const opt = document.createElement('option');
+    opt.value = ''; opt.textContent = 'нет аккаунта с identity_secret в maFile';
+    sender.appendChild(opt);
+  }
+  if (chosen) sender.value = chosen;
+
+  const tb = $('#rows'); tb.innerHTML = '';
+  STATE.accounts.forEach(a => {
+    if (a.login === sender.value) return;                 // отправитель себе не шлёт
+    const tr = el('tr');
+
+    const tdSel = el('td');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = PICKED.has(a.login);
+    box.disabled = !a.trade_url;
+    box.onclick = () => { box.checked ? PICKED.add(a.login) : PICKED.delete(a.login); counts(); };
+    tdSel.appendChild(box); tr.appendChild(tdSel);
+
+    tr.appendChild(el('td','mono',a.login));
+
+    const tdLink = el('td');
+    const link = el('span','truncate mono muted', a.trade_url || 'нет ссылки');
+    if (!a.trade_url) link.style.color = '#ff9c9c';
+    link.title = a.trade_url || '';
+    tdLink.appendChild(link); tr.appendChild(tdLink);
+
+    const d = a.delivery || {};
+    tr.appendChild(el('td','mono muted', d.offer || '—'));
+
+    const tdSt = el('td');
+    if (d.status) {
+      const badge = el('span','badge '+(BADGE[d.status]||'b-new'), LABEL[d.status]||d.status);
+      badge.title = d.note || '';
+      tdSt.appendChild(badge);
+      if (d.note) { const n = el('div','muted',d.note); n.style.fontSize='11px'; tdSt.appendChild(n); }
+    } else tdSt.appendChild(el('span','muted','—'));
+    tr.appendChild(tdSt);
+
+    tr.appendChild(unlockCell(d));
+
+    tb.appendChild(tr);
+  });
+  counts();
+}
+
+const MONTHS = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
+
+function shortDate(stamp) {                       // 2026-10-02 23:41:12 -> 2 окт, 23:41
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(stamp || '');
+  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}, ${m[4]}:${m[5]}` : (stamp || '');
+}
+
+function remains(stamp) {
+  const at = Date.parse((stamp || '').replace(' ', 'T'));
+  if (!at) return '';
+  const left = at - Date.now();
+  if (left <= 0) return 'уже свободен';
+  const days = Math.floor(left / 86400000);
+  return days ? `через ${days} дн.` : `через ${Math.max(1, Math.round(left / 3600000))} ч.`;
+}
+
+// дату называет сам Steam; когда промолчал — наш расчёт, и это видно в подсказке
+function unlockCell(d) {
+  const td = el('td');
+  const when = d.unlock_at || d.unlock_text;
+  if (!when) { td.appendChild(el('span','muted','—')); return td; }
+  const line = el('span','mono', d.unlock_at ? shortDate(d.unlock_at) : d.unlock_text);
+  line.title = (d.unlock_text ? 'Steam: ' + d.unlock_text : 'посчитано ботом: 7 дней после обмена')
+             + (d.unlock_source ? ` (${d.unlock_source})` : '');
+  td.appendChild(line);
+  const left = remains(d.unlock_at);
+  if (left) { const n = el('div','muted',left); n.style.fontSize = '11px'; td.appendChild(n); }
+  return td;
+}
+
+function counts() {
+  const n = PICKED.size;
+  $('#pickCount').textContent = 'выбрано: ' + n;
+  const per = Number($('#perAccount').value) || 1;
+  $('#need').textContent = n ? `Понадобится предметов: ${n * per} (${n} × ${per})` : '';
+}
+
+async function refresh() {
+  STATE = await api('/api/m/delivery');
+  const w = $('#workers');
+  if (!w.dataset.touched && STATE.workers) { w.value = STATE.workers; }   // значение из config.yaml
+  if (STATE.max_workers) w.max = STATE.max_workers;
+  render();
+}
+
+$('#selAll').onclick = () => {
+  STATE.accounts.forEach(a => { if (a.trade_url && a.login !== $('#sender').value) PICKED.add(a.login); });
+  render();
+};
+$('#selNone').onclick = () => { PICKED.clear(); render(); };
+$('#selFailed').onclick = () => {
+  PICKED.clear();
+  STATE.accounts.forEach(a => {
+    const st = (a.delivery || {}).status;
+    if (a.trade_url && a.login !== $('#sender').value && st !== 'accepted' && st !== 'escrow') PICKED.add(a.login);
+  });
+  render();
+};
+$('#perAccount').oninput = counts;
+$('#workers').oninput = () => { $('#workers').dataset.touched = '1'; };
+$('#sender').onchange = render;
+
+$('#btnInventory').onclick = async () => {
+  const sender = $('#sender').value;
+  if (!sender) return toast('Нет отправителя', true);
+  $('#invInfo').textContent = 'открываю профиль…';
+  try {
+    const inv = await api('/api/m/delivery/inventory/' + encodeURIComponent(sender), {method:'POST'});
+    $('#invInfo').textContent = `видов: ${Object.keys(inv.counts).length}, всего: ${inv.total}`;
+    const box = $('#stock'); box.innerHTML = '';
+    Object.entries(inv.counts).forEach(([name, count]) => {
+      const row = el('div');
+      row.appendChild(el('span','truncate',name));
+      row.appendChild(el('b',null,String(count)));
+      row.onclick = () => { $('#item').value = name; toast('Предмет выбран: ' + name); };
+      box.appendChild(row);
+    });
+    if (!Object.keys(inv.counts).length) box.appendChild(el('div','muted','инвентарь пуст или закрыт настройками приватности'));
+  } catch (e) { $('#invInfo').textContent = ''; toast(e.message, true); }
+};
+
+$('#btnStart').onclick = async () => {
+  const targets = [...PICKED];
+  if (!targets.length) return toast('Не выбран ни один получатель', true);
+  const item = $('#item').value.trim();
+  if (!item) return toast('Не указан предмет', true);
+  const per = Number($('#perAccount').value) || 1;
+  const lanes = Number($('#workers').value) || 1;
+  const how = lanes > 1 ? ` в ${lanes} потока` : '';
+  if (!confirm(`Разослать ${per} × «${item}» на ${targets.length} аккаунт(ов)${how}?`)) return;
+  try {
+    await api('/api/m/delivery/start', {method:'POST', body: JSON.stringify({
+      sender: $('#sender').value, item, per_account: per, targets,
+      message: $('#message').value, resume: $('#resume').checked, headful: $('#headful').checked,
+      workers: Number($('#workers').value) || 1,
+    })});
+    toast('Рассылка запущена');
+    setTimeout(refresh, 500);
+  } catch (e) { toast(e.message, true); }
+};
+$('#btnStop').onclick = async () => {
+  try { await api('/api/m/delivery/stop', {method:'POST'}); toast('Останавливаю…'); }
+  catch (e) { toast(e.message, true); }
+};
+$('#btnReload').onclick = () => refresh().then(() => toast('Обновлено'));
+$('#btnClearLog').onclick = () => { $('#log').innerHTML = ''; };
+
+function appendLog(text, level) {
+  const box = $('#log');
+  box.appendChild(el('div','l-'+(level||'INFO'), text));
+  while (box.children.length > 800) box.removeChild(box.firstChild);
+  box.scrollTop = box.scrollHeight;
+}
+
+function showSummary(data) {
+  const body = $('#summary'); body.innerHTML = '';
+  if (data.state === 'started') { body.appendChild(el('div','muted',`получателей: ${data.total}, предметов в наличии: ${data.available}`)); return; }
+  if (data.state === 'failed') { const e = el('div',null,data.error); e.style.color='#ff9c9c'; body.appendChild(e); return; }
+  const pairs = [['отправлено',data.sent],['принято',data.accepted],['пропущено',data.skipped],['ошибок',data.failed]];
+  pairs.forEach(([label, value]) => {
+    const row = el('div','row'); row.style.justifyContent='space-between';
+    row.appendChild(el('span','muted',label)); row.appendChild(el('b',null,String(value ?? 0)));
+    body.appendChild(row);
+  });
+  if (data.elapsed) body.appendChild(el('div','muted','за ' + data.elapsed + ' с'));
+}
+
+function connect() {
+  const src = new EventSource('/api/events' + (TOKEN ? '?token='+TOKEN : ''));
+  src.onmessage = ev => {
+    const d = JSON.parse(ev.data);
+    if (d.kind === 'log') appendLog(d.text, d.level);
+    else if (d.kind === 'delivery') {
+      const acc = STATE.accounts.find(a => a.login === d.login);
+      if (acc) { acc.delivery = d; render(); }
+    } else if (d.kind === 'delivery-run') {
+      STATE.running = d.state === 'started';
+      showSummary(d); render();
+      if (d.state !== 'started') refresh();
+    }
+  };
+  src.onerror = () => { src.close(); setTimeout(connect, 3000); };
+}
+
+refresh().then(connect).catch(e => toast(e.message, true));
+setInterval(() => { if (!STATE.running) refresh(); }, 15000);
+</script>
+</body>
+</html>
