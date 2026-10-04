@@ -21,6 +21,9 @@
 
 ## Установка
 
+Подробная пошаговая инструкция для нового компьютера — в [УСТАНОВКА.md](УСТАНОВКА.md).
+Коротко:
+
 ```bash
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
